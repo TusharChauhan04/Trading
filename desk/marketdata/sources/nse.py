@@ -48,6 +48,16 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from desk.marketdata.corporate_actions import ActionType, CorporateAction
+from desk.research.models import (
+    Announcement,
+    BoardMeeting,
+    CorporateEvent,
+    Filing,
+    InsiderDeal,
+    ResultPeriod,
+    ShareholdingSnapshot,
+    Undated,
+)
 
 BASE = "https://www.nseindia.com"
 API = f"{BASE}/api"
@@ -178,6 +188,64 @@ class NseSession:
         if not isinstance(data, list):
             raise SourceError(f"expected a list of actions, got {type(data).__name__}")
         return data
+
+    # ---- research: filings, announcements, events -------------------------
+    #
+    # Each is a thin, symbol-validated wrapper. The symbol is upper-cased and
+    # stripped of any .NS/.BO suffix before it reaches the URL, for the same
+    # reason get_json refuses absolute URLs: the only values that reach a
+    # request are built from a constant plus a narrowed argument.
+
+    def fetch_announcements(self, symbol: str) -> list[dict]:
+        return self._research("corporate-announcements", symbol)
+
+    def fetch_board_meetings(self, symbol: str) -> list[dict]:
+        return self._research("corporate-board-meetings", symbol)
+
+    def fetch_results(self, symbol: str, period: str = "Quarterly") -> list[dict]:
+        if period not in ("Quarterly", "Half-Yearly", "Annual"):
+            raise SourceError(f"unsupported results period {period!r}")
+        return self._research("corporates-financial-results", symbol,
+                              extra=f"&period={period}")
+
+    def fetch_shareholding(self, symbol: str) -> list[dict]:
+        return self._research("corporate-share-holdings-master", symbol)
+
+    def fetch_insider_deals(self, symbol: str) -> list[dict]:
+        return self._research("corporates-pit", symbol)
+
+    def fetch_event_calendar(self) -> list[dict]:
+        """Market-wide, not per symbol - this is the forward calendar the
+        event gate reads."""
+        data = self.get_json("event-calendar")
+        rows = data if isinstance(data, list) else data.get("data")
+        if not isinstance(rows, list):
+            raise SourceError(
+                f"expected a list of events, got {type(data).__name__}")
+        return rows
+
+    def fetch_xbrl(self, url: str) -> bytes:
+        """The document behind a filing. Cross-host (archives), so it goes
+        through _fetch_raw directly - but only for a URL NSE itself gave us,
+        which is checked rather than assumed."""
+        if not url.startswith(ARCHIVES):
+            raise SourceError(
+                f"refusing to fetch XBRL from {url[:60]!r} - not an NSE "
+                f"archive URL. Pass the link NSE supplied on the filing row."
+            )
+        return self._fetch_raw(url)
+
+    def _research(self, endpoint: str, symbol: str, extra: str = "") -> list[dict]:
+        base = symbol.split(".")[0].upper()
+        if not base.isalnum():
+            raise SourceError(f"refusing to build a URL from symbol {symbol!r}")
+        data = self.get_json(f"{endpoint}?index=equities&symbol={base}{extra}")
+        rows = data if isinstance(data, list) else data.get("data")
+        if not isinstance(rows, list):
+            raise SourceError(
+                f"{endpoint} for {base}: expected a list, got "
+                f"{type(data).__name__}")
+        return rows
 
     def fetch_holiday_master(self) -> dict:
         data = self.get_json("holiday-master?type=trading")
@@ -610,3 +678,259 @@ def parse_bhavcopy(raw: bytes, day: date | None = None) -> pd.DataFrame:
 def bhavcopy_equity_only(df: pd.DataFrame) -> pd.DataFrame:
     """The mainstream cash-equity slice - see BHAVCOPY_EQUITY_SERIES."""
     return df[df["series"].isin(BHAVCOPY_EQUITY_SERIES)].reset_index(drop=True)
+
+
+# --------------------------------------------------------------------------
+# research parsers
+#
+# Every one returns (records, undated). NSE genuinely publishes filings it
+# cannot date - nine of RELIANCE's 130 quarterly results, all 2005-2007 - and
+# those must not silently acquire a plausible timestamp. See
+# desk/research/models.py for why `disclosed_at` is required.
+# --------------------------------------------------------------------------
+
+#: NSE writes timestamps four ways across these endpoints, and in mixed case:
+#: '16-Jan-2025 20:20:21', '2026-09-16 17:45:33', '26-Apr-2007 18:00',
+#: '17-Jul-2026'. Measured across every captured fixture, not guessed.
+_DT_FORMATS = (
+    "%d-%b-%Y %H:%M:%S",
+    "%Y-%m-%d %H:%M:%S",
+    "%d-%b-%Y %H:%M",
+    "%d-%b-%Y",
+    "%Y-%m-%d",
+)
+
+#: NSE emits this when there is no document, rather than omitting the field.
+_NO_DOCUMENT = f"{ARCHIVES}/corporate/xbrl/-"
+
+
+def parse_nse_datetime(s: str | None) -> datetime | None:
+    """A timestamp, or None. Never a guess.
+
+    Title-cases the month so '16-JUL-2026' parses the same as '16-Jul-2026' -
+    NSE uses both, on different endpoints.
+    """
+    raw = (s or "").strip()
+    if not raw or raw in ("-", "NA", "null"):
+        return None
+    for fmt in _DT_FORMATS:
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            pass
+    # Mixed case is common enough to be worth one retry rather than a failure.
+    fixed = re.sub(r"\b([A-Za-z]{3})\b", lambda m: m.group(1).title(), raw)
+    if fixed != raw:
+        for fmt in _DT_FORMATS:
+            try:
+                return datetime.strptime(fixed, fmt)
+            except ValueError:
+                pass
+    return None
+
+
+def _disclosed(row: dict, *fields: str) -> datetime | None:
+    """First usable timestamp among `fields`, in preference order.
+
+    Order matters: broadCastDate is when the exchange DISSEMINATED it, which
+    is when the market could act. filingDate is when the company submitted,
+    which is earlier and is the honest fallback when NSE published no
+    broadcast time.
+    """
+    for f in fields:
+        dt = parse_nse_datetime(row.get(f))
+        if dt is not None:
+            return dt
+    return None
+
+
+#: NSE spells "there is nothing here" several ways, and "-" is by far the
+#: most common - 456 of RELIANCE's 3,345 announcements carry it in place of an
+#: attachment URL. Passed through verbatim it becomes a link that a downstream
+#: fetch will dutifully try to open.
+_ABSENT = {"", "-", "na", "null", "none"}
+
+
+def _text_or_none(v) -> str | None:
+    t = (v or "").strip()
+    return None if t.lower() in _ABSENT else t
+
+
+def _num(v) -> float | None:
+    try:
+        return float(str(v).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_results(payload: list[dict], symbol: str
+                  ) -> tuple[list[Filing], list[Undated]]:
+    """Financial results into `Filing` records - the fundamentals shape."""
+    out, undated = [], []
+    for row in payload:
+        if not isinstance(row, dict):
+            continue
+        dt = _disclosed(row, "broadCastDate", "exchdisstime", "filingDate")
+        if dt is None:
+            undated.append(Undated(
+                symbol=symbol, kind="result",
+                reason=f"no broadcast, dissemination or filing time "
+                       f"({row.get('relatingTo') or '?'} "
+                       f"{row.get('fromDate') or '?'} to "
+                       f"{row.get('toDate') or '?'})",
+                raw=row))
+            continue
+        xbrl = _text_or_none(row.get("xbrl"))
+        # NSE also emits the archive path with a bare "-" filename, which is
+        # not empty but is not a document either.
+        if xbrl and (xbrl == _NO_DOCUMENT or xbrl.endswith("/-")):
+            xbrl = None
+        out.append(Filing(
+            symbol=symbol,
+            disclosed_at=dt,
+            period_start=parse_nse_date(row.get("fromDate")),
+            period_end=parse_nse_date(row.get("toDate")),
+            period=_result_period(row.get("period")),
+            audited=_tri_state(row.get("audited"), "Audited", "Un-Audited"),
+            consolidated=_tri_state(row.get("consolidated"),
+                                    "Consolidated", "Non-Consolidated"),
+            company_name=(row.get("companyName") or "").strip(),
+            relating_to=(row.get("relatingTo") or "").strip(),
+            xbrl_url=xbrl,
+            isin=(row.get("isin") or "").strip(),
+        ))
+    return out, undated
+
+
+def _result_period(v) -> ResultPeriod:
+    t = (v or "").strip().lower()
+    if t.startswith("quarter"):
+        return ResultPeriod.QUARTERLY
+    if "half" in t:
+        return ResultPeriod.HALF_YEARLY
+    if t.startswith("annual") or t.startswith("year"):
+        return ResultPeriod.ANNUAL
+    return ResultPeriod.UNKNOWN
+
+
+def _tri_state(v, yes: str, no: str) -> bool | None:
+    """True / False / None. None means NSE did not say, which is NOT the same
+    as saying no - the same third-state discipline as Sizing.checks_skipped."""
+    t = (v or "").strip().lower()
+    if t == yes.lower():
+        return True
+    if t == no.lower():
+        return False
+    return None
+
+
+def parse_announcements(payload: list[dict], symbol: str
+                        ) -> tuple[list[Announcement], list[Undated]]:
+    out, undated = [], []
+    for row in payload:
+        if not isinstance(row, dict):
+            continue
+        dt = _disclosed(row, "an_dt", "sort_date", "exchdisstime")
+        if dt is None:
+            undated.append(Undated(symbol=symbol, kind="announcement",
+                                   reason="no announcement timestamp", raw=row))
+            continue
+        att = _text_or_none(row.get("attchmntFile"))
+        out.append(Announcement(
+            symbol=symbol,
+            disclosed_at=dt,
+            category=(row.get("desc") or "").strip(),
+            text=(row.get("attchmntText") or "").strip(),
+            attachment_url=att,
+        ))
+    return out, undated
+
+
+def parse_board_meetings(payload: list[dict], symbol: str
+                         ) -> tuple[list[BoardMeeting], list[Undated]]:
+    out, undated = [], []
+    for row in payload:
+        if not isinstance(row, dict):
+            continue
+        dt = _disclosed(row, "bm_timestamp", "exchdisstime")
+        if dt is None:
+            undated.append(Undated(symbol=symbol, kind="board_meeting",
+                                   reason="no intimation timestamp", raw=row))
+            continue
+        out.append(BoardMeeting(
+            symbol=symbol,
+            disclosed_at=dt,
+            meeting_date=parse_nse_date(row.get("bm_date")),
+            purpose=(row.get("bm_purpose") or "").strip(),
+            description=(row.get("bm_desc") or "").strip(),
+        ))
+    return out, undated
+
+
+def parse_shareholding(payload: list[dict], symbol: str
+                       ) -> tuple[list[ShareholdingSnapshot], list[Undated]]:
+    out, undated = [], []
+    for row in payload:
+        if not isinstance(row, dict):
+            continue
+        dt = _disclosed(row, "broadcastDate", "systemDate")
+        if dt is None:
+            undated.append(Undated(symbol=symbol, kind="shareholding",
+                                   reason="no broadcast timestamp", raw=row))
+            continue
+        out.append(ShareholdingSnapshot(
+            symbol=symbol,
+            disclosed_at=dt,
+            as_at=parse_nse_date(row.get("date")),
+            promoter_pct=_num(row.get("pr_and_prgrp")),
+            public_pct=_num(row.get("public_val")),
+            employee_trust_pct=_num(row.get("employeeTrusts")),
+        ))
+    return out, undated
+
+
+def parse_insider_deals(payload: list[dict], symbol: str
+                        ) -> tuple[list[InsiderDeal], list[Undated]]:
+    out, undated = [], []
+    for row in payload:
+        if not isinstance(row, dict):
+            continue
+        dt = _disclosed(row, "date", "exchdisstime", "acqtoDt")
+        if dt is None:
+            undated.append(Undated(symbol=symbol, kind="insider_deal",
+                                   reason="no disclosure timestamp", raw=row))
+            continue
+        out.append(InsiderDeal(
+            symbol=symbol,
+            disclosed_at=dt,
+            acquirer=(row.get("acqName") or "").strip(),
+            mode=(row.get("acqMode") or "").strip(),
+            shares_after=_num(row.get("afterAcqSharesNo")),
+            pct_after=_num(row.get("afterAcqSharesPer")),
+            from_date=parse_nse_date(row.get("acqfromDt")),
+            to_date=parse_nse_date(row.get("acqtoDt")),
+            regulation=(row.get("anex") or "").strip(),
+        ))
+    return out, undated
+
+
+def parse_event_calendar(payload: list[dict]) -> list[CorporateEvent]:
+    """Forward-looking, market-wide. No (records, undated) split: an event
+    with no date is simply unusable here and is dropped with the rest of the
+    row, because unlike a filing there is no historical record being lost -
+    the calendar is refetched every day."""
+    out = []
+    for row in payload:
+        if not isinstance(row, dict):
+            continue
+        sym = (row.get("symbol") or "").strip()
+        if not sym:
+            continue
+        out.append(CorporateEvent(
+            symbol=sym,
+            event_date=parse_nse_date(row.get("date")),
+            purpose=(row.get("purpose") or "").strip(),
+            company=(row.get("company") or "").strip(),
+            description=(row.get("bm_desc") or "").strip(),
+        ))
+    return out
