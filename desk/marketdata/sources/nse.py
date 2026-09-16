@@ -39,7 +39,9 @@ import http.cookiejar
 import io
 import json
 import math
+import math
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -51,16 +53,6 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from desk.marketdata.corporate_actions import ActionType, CorporateAction
-from desk.research.models import (
-    Announcement,
-    BoardMeeting,
-    CorporateEvent,
-    Filing,
-    InsiderDeal,
-    ResultPeriod,
-    ShareholdingSnapshot,
-    Undated,
-)
 
 BASE = "https://www.nseindia.com"
 API = f"{BASE}/api"
@@ -118,16 +110,92 @@ class SourceError(Exception):
 # Fetching - the only part that needs a network
 # ===========================================================================
 
-class NseSession:
-    """A cookie-bearing session. Construct once and reuse; NSE rate-limits."""
+class RateLimited(SourceError):
+    """NSE refused us for asking too often. Distinct from every other
+    SourceError because it is the one the caller should WAIT on and retry,
+    rather than stop and tell a human."""
 
-    def __init__(self, timeout: float = 15.0) -> None:
+
+class NseSession:
+    """A cookie-bearing, self-throttling session. Construct once and reuse.
+
+    THE THROTTLE IS NOT OPTIONAL. desk/marketdata/providers.py has carried the
+    instruction "Throttle and cache" since the provider registry was written,
+    and this client did neither. The scanner's Stage 0 narrows to ~1,598
+    symbols; five research endpoints each makes that ~8,000 sequential
+    requests for one pass. Issued back-to-back at whatever speed urllib
+    manages, that is not a plausible browsing pattern and it is how an IP
+    stops being able to reach NSE at all.
+
+    `min_interval` is the floor between two requests, enforced inside
+    `_fetch_raw` so no caller can forget it. The default of 1.0s is
+    deliberately slower than NSE is likely to require - a full-universe pass
+    is a background batch, and being throttled into a ban costs far more than
+    the extra minutes.
+
+    Rate-limit responses (429, and 403 once warmed, which is how NSE
+    frequently expresses it) raise `RateLimited` rather than a generic
+    SourceError, and `fetch_with_retry` waits out an exponential backoff.
+    The distinction matters: "wait and try again" and "the endpoint moved,
+    stop and tell a human" need different responses, and before this they
+    were indistinguishable.
+    """
+
+    def __init__(self, timeout: float = 15.0, min_interval: float = 1.0,
+                 max_requests: int | None = None) -> None:
         self.timeout = timeout
+        self.min_interval = max(0.0, min_interval)
+        #: A hard ceiling on requests for the life of this session. None means
+        #: no ceiling. A bug that loops is otherwise an all-night hammering
+        #: session, and the first anyone knows of it is the block.
+        self.max_requests = max_requests
+        self.requests_made = 0
+        self._last_request = 0.0
         self._jar = http.cookiejar.CookieJar()
         self._opener = urllib.request.build_opener(
             urllib.request.HTTPCookieProcessor(self._jar)
         )
         self._warmed = False
+
+    def _wait_turn(self) -> None:
+        """Sleep until `min_interval` has passed since the last request.
+
+        Uses a monotonic clock: time.time() can step backwards over an NTP
+        correction or a DST change, which would silently disable the throttle
+        at exactly the wrong moment.
+        """
+        if self.max_requests is not None and self.requests_made >= self.max_requests:
+            raise SourceError(
+                f"request budget of {self.max_requests} exhausted for this "
+                f"session. Raise max_requests deliberately if that is really "
+                f"what you want - it is set to stop a loop becoming a ban."
+            )
+        if self.min_interval:
+            elapsed = time.monotonic() - self._last_request
+            if elapsed < self.min_interval:
+                time.sleep(self.min_interval - elapsed)
+        self._last_request = time.monotonic()
+        self.requests_made += 1
+
+    def fetch_with_retry(self, fn, *args, attempts: int = 4,
+                         base_delay: float = 5.0, **kwargs):
+        """Run a fetch, waiting out rate limits with exponential backoff.
+
+        Only `RateLimited` is retried. A renamed endpoint or a malformed
+        payload is not transient, and retrying it four times just means
+        arriving at the same wrong answer more slowly while adding load to
+        the thing that is already refusing us.
+        """
+        delay = base_delay
+        for attempt in range(1, attempts + 1):
+            try:
+                return fn(*args, **kwargs)
+            except RateLimited:
+                if attempt == attempts:
+                    raise
+                time.sleep(delay)
+                delay *= 2
+        raise AssertionError("unreachable")
 
     def _warm(self) -> None:
         """Populate the cookie jar.
@@ -139,6 +207,7 @@ class NseSession:
         if self._warmed:
             return
         req = urllib.request.Request(f"{BASE}/", headers=BROWSER_HEADERS)
+        self._wait_turn()
         try:
             self._opener.open(req, timeout=self.timeout).read()
         except urllib.error.HTTPError:
@@ -155,6 +224,7 @@ class NseSession:
         get_json's docstring for why that matters.
         """
         self._warm()
+        self._wait_turn()
         req = urllib.request.Request(url, headers=BROWSER_HEADERS)
         try:
             with self._opener.open(req, timeout=self.timeout) as resp:
@@ -182,6 +252,15 @@ class NseSession:
                     raw = _gunzip_bounded(raw, url)
                 return raw
         except urllib.error.HTTPError as exc:
+            # 429 is explicit. 403 AFTER the handshake has succeeded is how
+            # NSE usually expresses a rate limit in practice - a 403 on the
+            # homepage during _warm is normal and handled there, but a 403 on
+            # an API call we were previously allowed to make is not.
+            if exc.code == 429 or (exc.code == 403 and self._warmed):
+                raise RateLimited(
+                    f"{url} returned HTTP {exc.code} - rate limited. Slow down "
+                    f"(min_interval is {self.min_interval}s) or wait it out."
+                ) from exc
             raise SourceError(f"{url} returned HTTP {exc.code}") from exc
         except OSError as exc:
             raise SourceError(f"{url} unreachable: {exc}") from exc
@@ -357,6 +436,45 @@ def _gunzip_bounded(raw: bytes, url: str) -> bytes:
         chunk = d.decompress(d.unconsumed_tail,
                              MAX_DECOMPRESSED_BYTES + 1 - len(out))
     return bytes(out)
+
+
+#: NSE spells "there is nothing here" several ways, and "-" is by far the
+#: most common - 456 of RELIANCE's 3,345 announcements carry it in place of an
+#: attachment URL. Passed through verbatim it becomes a link that a downstream
+#: fetch will dutifully try to open.
+_ABSENT = {"", "-", "na", "null", "none"}
+
+
+def _s(v) -> str:
+    """A field as a string, whatever NSE actually sent.
+
+    `(v or "").strip()` is the obvious idiom and it is wrong: it only
+    substitutes "" for FALSY values, so an int, list or dict passes straight
+    through to .strip() and raises AttributeError. These endpoints are
+    undocumented, so a field changing type between API revisions is a
+    when-not-if - and one such field would otherwise cost the entire batch,
+    `undated` list included. _num() already had this right; the string
+    helpers did not.
+    """
+    if v is None:
+        return ""
+    return v.strip() if isinstance(v, str) else str(v).strip()
+
+
+def _text_or_none(v) -> str | None:
+    t = _s(v)
+    return None if t.lower() in _ABSENT else t
+
+
+def _num(v) -> float | None:
+    """A number, or None. NaN and Infinity are refused rather than passed on:
+    json.loads accepts both as literals, and a NaN promoter holding compares
+    false against every threshold downstream without ever looking wrong."""
+    try:
+        f = float(str(v).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
 
 
 def parse_nse_date(s: str) -> date | None:
@@ -767,289 +885,3 @@ def parse_bhavcopy(raw: bytes, day: date | None = None) -> pd.DataFrame:
 def bhavcopy_equity_only(df: pd.DataFrame) -> pd.DataFrame:
     """The mainstream cash-equity slice - see BHAVCOPY_EQUITY_SERIES."""
     return df[df["series"].isin(BHAVCOPY_EQUITY_SERIES)].reset_index(drop=True)
-
-
-# --------------------------------------------------------------------------
-# research parsers
-#
-# Every one returns (records, undated). NSE genuinely publishes filings it
-# cannot date - nine of RELIANCE's 130 quarterly results, all 2005-2007 - and
-# those must not silently acquire a plausible timestamp. See
-# desk/research/models.py for why `disclosed_at` is required.
-# --------------------------------------------------------------------------
-
-#: NSE writes timestamps four ways across these endpoints, and in mixed case:
-#: '16-Jan-2025 20:20:21', '2026-09-16 17:45:33', '26-Apr-2007 18:00',
-#: '17-Jul-2026'. Measured across every captured fixture, not guessed.
-_DT_FORMATS = (
-    "%d-%b-%Y %H:%M:%S",
-    "%Y-%m-%d %H:%M:%S",
-    "%d-%b-%Y %H:%M",
-    "%d-%b-%Y",
-    "%Y-%m-%d",
-)
-
-#: NSE emits this when there is no document, rather than omitting the field.
-_NO_DOCUMENT = f"{ARCHIVES}/corporate/xbrl/-"
-
-
-def parse_nse_datetime(s: str | None) -> datetime | None:
-    """A timestamp, or None. Never a guess.
-
-    NSE mixes case across endpoints ('16-JUL-2026' and '16-Jul-2026' both
-    occur). No special handling is needed: strptime's %b is already
-    case-insensitive in CPython. An earlier version of this function carried a
-    title-casing retry for that purpose - measured across all 20,556 date-like
-    values in the fixtures, it was reached 7,274 times and changed the outcome
-    zero times. Removed rather than left as reassuring dead code.
-    """
-    raw = _s(s)
-    if not raw or raw in ("-", "NA", "null"):
-        return None
-    for fmt in _DT_FORMATS:
-        try:
-            return datetime.strptime(raw, fmt)
-        except ValueError:
-            pass
-    return None
-
-
-def _disclosed(row: dict, *fields: str) -> datetime | None:
-    """First usable timestamp among `fields`, in preference order.
-
-    Order matters: broadCastDate is when the exchange DISSEMINATED it, which
-    is when the market could act. filingDate is when the company submitted,
-    which is earlier and is the honest fallback when NSE published no
-    broadcast time.
-    """
-    for f in fields:
-        dt = parse_nse_datetime(row.get(f))
-        if dt is not None:
-            return dt
-    return None
-
-
-#: NSE spells "there is nothing here" several ways, and "-" is by far the
-#: most common - 456 of RELIANCE's 3,345 announcements carry it in place of an
-#: attachment URL. Passed through verbatim it becomes a link that a downstream
-#: fetch will dutifully try to open.
-_ABSENT = {"", "-", "na", "null", "none"}
-
-
-def _s(v) -> str:
-    """A field as a string, whatever NSE actually sent.
-
-    `(v or "").strip()` is the obvious idiom and it is wrong: it only
-    substitutes "" for FALSY values, so an int, list or dict passes straight
-    through to .strip() and raises AttributeError. These endpoints are
-    undocumented, so a field changing type between API revisions is a
-    when-not-if - and one such field would otherwise cost the entire batch,
-    `undated` list included. _num() already had this right; the string
-    helpers did not.
-    """
-    if v is None:
-        return ""
-    return v.strip() if isinstance(v, str) else str(v).strip()
-
-
-def _text_or_none(v) -> str | None:
-    t = _s(v)
-    return None if t.lower() in _ABSENT else t
-
-
-def _num(v) -> float | None:
-    """A number, or None. NaN and Infinity are refused rather than passed on:
-    json.loads accepts both as literals, and a NaN promoter holding compares
-    false against every threshold downstream without ever looking wrong."""
-    try:
-        f = float(str(v).replace(",", "").strip())
-    except (TypeError, ValueError):
-        return None
-    return f if math.isfinite(f) else None
-
-
-def parse_results(payload: list[dict], symbol: str
-                  ) -> tuple[list[Filing], list[Undated]]:
-    """Financial results into `Filing` records - the fundamentals shape."""
-    out, undated = [], []
-    for row in payload:
-        if not isinstance(row, dict):
-            continue
-        dt = _disclosed(row, "broadCastDate", "exchdisstime", "filingDate")
-        if dt is None:
-            undated.append(Undated(
-                symbol=symbol, kind="result",
-                reason=f"no broadcast, dissemination or filing time "
-                       f"({row.get('relatingTo') or '?'} "
-                       f"{row.get('fromDate') or '?'} to "
-                       f"{row.get('toDate') or '?'})",
-                raw=row))
-            continue
-        xbrl = _text_or_none(row.get("xbrl"))
-        # NSE also emits the archive path with a bare "-" filename, which is
-        # not empty but is not a document either.
-        if xbrl and (xbrl == _NO_DOCUMENT or xbrl.endswith("/-")):
-            xbrl = None
-        out.append(Filing(
-            symbol=symbol,
-            disclosed_at=dt,
-            period_start=parse_nse_date(row.get("fromDate")),
-            period_end=parse_nse_date(row.get("toDate")),
-            period=_result_period(row.get("period")),
-            audited=_tri_state(row.get("audited"), "Audited", "Un-Audited"),
-            consolidated=_tri_state(row.get("consolidated"),
-                                    "Consolidated", "Non-Consolidated"),
-            company_name=_s(row.get("companyName")),
-            relating_to=_s(row.get("relatingTo")),
-            xbrl_url=xbrl,
-            isin=_s(row.get("isin")),
-        ))
-    return out, undated
-
-
-def _result_period(v) -> ResultPeriod:
-    t = _s(v).lower()
-    if t.startswith("quarter"):
-        return ResultPeriod.QUARTERLY
-    if "half" in t:
-        return ResultPeriod.HALF_YEARLY
-    if t.startswith("annual") or t.startswith("year"):
-        return ResultPeriod.ANNUAL
-    return ResultPeriod.UNKNOWN
-
-
-def _tri_state(v, yes: str, no: str) -> bool | None:
-    """True / False / None. None means NSE did not say, which is NOT the same
-    as saying no - the same third-state discipline as Sizing.checks_skipped."""
-    t = _s(v).lower()
-    if t == yes.lower():
-        return True
-    if t == no.lower():
-        return False
-    return None
-
-
-def parse_announcements(payload: list[dict], symbol: str
-                        ) -> tuple[list[Announcement], list[Undated]]:
-    out, undated = [], []
-    for row in payload:
-        if not isinstance(row, dict):
-            continue
-        dt = _disclosed(row, "an_dt", "sort_date", "exchdisstime")
-        if dt is None:
-            undated.append(Undated(symbol=symbol, kind="announcement",
-                                   reason="no announcement timestamp", raw=row))
-            continue
-        att = _text_or_none(row.get("attchmntFile"))
-        out.append(Announcement(
-            symbol=symbol,
-            disclosed_at=dt,
-            category=_s(row.get("desc")),
-            text=_s(row.get("attchmntText")),
-            attachment_url=att,
-        ))
-    return out, undated
-
-
-def parse_board_meetings(payload: list[dict], symbol: str
-                         ) -> tuple[list[BoardMeeting], list[Undated]]:
-    out, undated = [], []
-    for row in payload:
-        if not isinstance(row, dict):
-            continue
-        dt = _disclosed(row, "bm_timestamp", "exchdisstime")
-        if dt is None:
-            undated.append(Undated(symbol=symbol, kind="board_meeting",
-                                   reason="no intimation timestamp", raw=row))
-            continue
-        out.append(BoardMeeting(
-            symbol=symbol,
-            disclosed_at=dt,
-            meeting_date=parse_nse_date(row.get("bm_date")),
-            purpose=_s(row.get("bm_purpose")),
-            description=_s(row.get("bm_desc")),
-        ))
-    return out, undated
-
-
-def parse_shareholding(payload: list[dict], symbol: str
-                       ) -> tuple[list[ShareholdingSnapshot], list[Undated]]:
-    out, undated = [], []
-    for row in payload:
-        if not isinstance(row, dict):
-            continue
-        dt = _disclosed(row, "broadcastDate", "systemDate")
-        if dt is None:
-            undated.append(Undated(symbol=symbol, kind="shareholding",
-                                   reason="no broadcast timestamp", raw=row))
-            continue
-        out.append(ShareholdingSnapshot(
-            symbol=symbol,
-            disclosed_at=dt,
-            as_at=parse_nse_date(row.get("date")),
-            promoter_pct=_num(row.get("pr_and_prgrp")),
-            public_pct=_num(row.get("public_val")),
-            employee_trust_pct=_num(row.get("employeeTrusts")),
-        ))
-    return out, undated
-
-
-def parse_insider_deals(payload: list[dict], symbol: str
-                        ) -> tuple[list[InsiderDeal], list[Undated]]:
-    out, undated = [], []
-    for row in payload:
-        if not isinstance(row, dict):
-            continue
-        # NOT acqtoDt. That is when the TRANSACTION completed, which in every
-        # sampled row precedes the actual broadcast by 1-5 days - so using it
-        # as `disclosed_at` would tell a backtest the market knew about an
-        # insider trade days before it was disclosed. That is precisely the
-        # leak this module exists to prevent, so a row we cannot date is
-        # reported as undated instead. intimDt (the company's own intimation)
-        # IS a disclosure event and is an acceptable last resort.
-        dt = _disclosed(row, "date", "exchdisstime", "intimDt")
-        if dt is None:
-            undated.append(Undated(symbol=symbol, kind="insider_deal",
-                                   reason="no disclosure timestamp", raw=row))
-            continue
-        out.append(InsiderDeal(
-            symbol=symbol,
-            disclosed_at=dt,
-            acquirer=_s(row.get("acqName")),
-            mode=_s(row.get("acqMode")),
-            shares_after=_num(row.get("afterAcqSharesNo")),
-            pct_after=_num(row.get("afterAcqSharesPer")),
-            from_date=parse_nse_date(row.get("acqfromDt")),
-            to_date=parse_nse_date(row.get("acqtoDt")),
-            regulation=_s(row.get("anex")),
-        ))
-    return out, undated
-
-
-def parse_event_calendar(payload: list[dict]) -> list[CorporateEvent]:
-    """Forward-looking, market-wide. No (records, undated) split: an event
-    with no date is simply unusable here and is dropped with the rest of the
-    row, because unlike a filing there is no historical record being lost -
-    the calendar is refetched every day."""
-    out = []
-    for row in payload:
-        if not isinstance(row, dict):
-            continue
-        sym = _s(row.get("symbol"))
-        if not sym:
-            continue
-        event_date = parse_nse_date(row.get("date"))
-        if event_date is None:
-            # The docstring promised this and the code did not do it. An
-            # undated event cannot answer "is this within my holding window",
-            # and a None here would either crash date arithmetic in the event
-            # gate or silently miscount how many events are in range.
-            continue
-        out.append(CorporateEvent(
-            symbol=sym,
-            event_date=event_date,
-            purpose=_s(row.get("purpose")),
-            company=_s(row.get("company")),
-            description=_s(row.get("bm_desc")),
-        ))
-    return out

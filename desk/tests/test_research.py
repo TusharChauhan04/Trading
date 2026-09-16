@@ -19,8 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from desk.marketdata.sources.nse import (
-    SourceError,
+from desk.marketdata.sources.nse import SourceError
+from desk.research.sources.nse import (
     parse_announcements,
     parse_board_meetings,
     parse_event_calendar,
@@ -586,7 +586,9 @@ def test_a_redirect_off_nse_is_refused_even_though_the_url_we_asked_for_was_fine
         def __enter__(self): return self
         def __exit__(self, *a): return False
 
-    s = NseSession()
+    # min_interval=0: this test is about the redirect check, not the
+    # throttle, and a real sleep here buys nothing.
+    s = NseSession(min_interval=0)
     s._warmed = True
     s._opener = type("O", (), {"open": lambda self, req, timeout=None:
                                FakeResp("https://evil.example/stolen")})()
@@ -613,3 +615,163 @@ def test_a_gzip_bomb_is_refused_rather_than_decompressed_into_memory():
 
     # A normal body still round-trips.
     assert _gunzip_bounded(_gzip.compress(b"hello"), "u") == b"hello"
+
+
+# ===========================================================================
+# the throttle - R2's precondition for fetching anything at scale
+# ===========================================================================
+
+def _stub_session(monkeypatch, min_interval, **kw):
+    """A session whose socket is replaced but whose throttle is real."""
+    from desk.marketdata.sources.nse import NseSession
+
+    class Resp:
+        headers = {}
+        def geturl(self): return "https://www.nseindia.com/x"
+        def read(self, n=-1): return b"{}"
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    s = NseSession(min_interval=min_interval, **kw)
+    s._warmed = True
+    s._opener = type("O", (), {"open": lambda self, req, timeout=None: Resp()})()
+    return s
+
+
+def test_requests_are_spaced_by_at_least_min_interval(monkeypatch):
+    """REGRESSION target for the whole of R2's first step: providers.py has
+    said "Throttle and cache" since the registry was written and NseSession
+    did neither. R3 wants ~8,000 sequential requests; unthrottled, that is how
+    an IP stops being able to reach NSE."""
+    import time as _t
+    s = _stub_session(monkeypatch, min_interval=0.05)
+    start = _t.monotonic()
+    for _ in range(4):
+        s._fetch_raw("https://www.nseindia.com/x")
+    elapsed = _t.monotonic() - start
+    # 4 requests, 3 gaps. The first is free.
+    assert elapsed >= 0.05 * 3 * 0.9, f"throttle did not hold: {elapsed:.3f}s"
+    assert s.requests_made == 4
+
+
+def test_the_throttle_uses_a_monotonic_clock():
+    """time.time() steps backwards over an NTP correction or a DST change,
+    which would silently disable the throttle at exactly the wrong moment."""
+    import ast
+    import inspect
+    from desk.marketdata.sources.nse import NseSession
+
+    # Parse rather than grep: the docstring deliberately MENTIONS time.time()
+    # to explain why it is not used, and a naive substring check flags that.
+    tree = ast.parse(inspect.getsource(NseSession._wait_turn).strip())
+    calls = {ast.unparse(n.func) for n in ast.walk(tree)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+    assert "time.monotonic" in calls
+    assert "time.time" not in calls
+
+
+def test_a_request_budget_stops_a_loop_becoming_a_ban(monkeypatch):
+    """A bug that loops is otherwise an all-night hammering session, and the
+    first anyone knows of it is the block."""
+    s = _stub_session(monkeypatch, min_interval=0, max_requests=3)
+    for _ in range(3):
+        s._fetch_raw("https://www.nseindia.com/x")
+    with pytest.raises(SourceError, match="request budget"):
+        s._fetch_raw("https://www.nseindia.com/x")
+
+
+def test_rate_limiting_is_distinguishable_from_a_broken_endpoint(monkeypatch):
+    """"Wait and try again" and "the endpoint moved, stop and tell a human"
+    need different responses, and before this they were the same exception."""
+    import urllib.error
+    from desk.marketdata.sources.nse import NseSession, RateLimited
+
+    def make(code):
+        s = NseSession(min_interval=0)
+        s._warmed = True
+        def boom(req, timeout=None):
+            raise urllib.error.HTTPError("u", code, "no", {}, None)
+        s._opener = type("O", (), {"open": lambda self, r, timeout=None: boom(r)})()
+        return s
+
+    with pytest.raises(RateLimited):
+        make(429)._fetch_raw("https://www.nseindia.com/x")
+    # 403 after a successful handshake is how NSE usually says "slow down"
+    with pytest.raises(RateLimited):
+        make(403)._fetch_raw("https://www.nseindia.com/x")
+    # 404 is not transient - retrying it just arrives at the same wrong answer
+    with pytest.raises(SourceError) as exc:
+        make(404)._fetch_raw("https://www.nseindia.com/x")
+    assert not isinstance(exc.value, RateLimited)
+
+
+def test_backoff_retries_only_rate_limits(monkeypatch):
+    from desk.marketdata.sources.nse import NseSession, RateLimited
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    s = NseSession(min_interval=0)
+
+    calls = {"n": 0}
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise RateLimited("slow down")
+        return "ok"
+    assert s.fetch_with_retry(flaky) == "ok"
+    assert calls["n"] == 3
+
+    # A non-transient failure must NOT be retried.
+    tries = {"n": 0}
+    def broken():
+        tries["n"] += 1
+        raise SourceError("endpoint renamed")
+    with pytest.raises(SourceError, match="endpoint renamed"):
+        s.fetch_with_retry(broken)
+    assert tries["n"] == 1
+
+
+def test_backoff_gives_up_and_reraises_rather_than_looping_forever(monkeypatch):
+    from desk.marketdata.sources.nse import NseSession, RateLimited
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    s = NseSession(min_interval=0)
+    n = {"c": 0}
+    def always():
+        n["c"] += 1
+        raise RateLimited("still limited")
+    with pytest.raises(RateLimited):
+        s.fetch_with_retry(always, attempts=3)
+    assert n["c"] == 3
+
+
+def test_the_research_and_transport_modules_do_not_form_an_import_cycle():
+    """REGRESSION: the split initially kept a back-compat re-export in the
+    transport module, which made `desk.marketdata.sources.nse` import
+    `desk.research.sources.nse` and vice versa. It passed the whole suite,
+    because the tests happened to import transport first - the cycle only
+    appeared when something imported research first. A shim that creates a
+    cycle is worse than moving two import lines."""
+    import subprocess
+    import sys
+
+    # Run in a SUBPROCESS. Clearing desk.* out of sys.modules in-process
+    # rebinds every class this suite has already imported, so a later test
+    # asserting isinstance() against the pre-reload class fails for reasons
+    # that have nothing to do with it - which is exactly what happened when
+    # this test was first written.
+    for first in ("desk.research.sources.nse", "desk.marketdata.sources.nse"):
+        r = subprocess.run([sys.executable, "-c", f"import {first}"],
+                           capture_output=True, text=True)
+        assert r.returncode == 0, (
+            f"importing {first} first failed:\n{r.stderr}")
+
+
+def test_the_transport_module_does_not_depend_on_the_research_domain():
+    """Direction of the dependency is the point of the split: research knows
+    about transport, transport knows nothing about research. If this inverts,
+    R6's BSE source has nowhere symmetric to live."""
+    import ast
+    import pathlib
+
+    src = pathlib.Path("desk/marketdata/sources/nse.py").read_text(encoding="utf-8")
+    imported = {n.module for n in ast.walk(ast.parse(src))
+                if isinstance(n, ast.ImportFrom) and n.module}
+    assert not any(m.startswith("desk.research") for m in imported), imported
