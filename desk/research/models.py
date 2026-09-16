@@ -113,8 +113,19 @@ class Announcement:
         17:45 is tradeable tomorrow; one at 11:00 moved the price today.
 
         NSE's normal session is 09:15-15:30 IST.
+
+        A tz-aware datetime is CONVERTED to IST rather than having its
+        tzinfo quietly dropped. `.time()` discards the offset without
+        complaint, so a UTC 09:00 (= 14:30 IST, mid-session) would otherwise
+        read as "before_market" - a wrong answer with no error. Nothing
+        constructs an aware datetime today; this is here so that whoever
+        wires a second source or a UTC-normalised store cannot be caught by
+        it silently.
         """
-        t = self.disclosed_at.time()
+        when = self.disclosed_at
+        if when.tzinfo is not None:
+            when = when.astimezone(_IST)
+        t = when.time()
         if t < _OPEN:
             return "before_market"
         if t <= _CLOSE:
@@ -186,5 +197,8 @@ class CorporateEvent:
 # this have moved today's price", and for that the normal session is the line
 # that matters.
 from datetime import time as _time
+from zoneinfo import ZoneInfo
+
+_IST = ZoneInfo("Asia/Kolkata")
 _OPEN = _time(9, 15)
 _CLOSE = _time(15, 30)

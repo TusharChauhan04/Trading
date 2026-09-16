@@ -39,6 +39,7 @@ import io
 import json
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -62,6 +63,14 @@ from desk.research.models import (
 BASE = "https://www.nseindia.com"
 API = f"{BASE}/api"
 ARCHIVES = "https://nsearchives.nseindia.com"     # bhavcopy and other static files
+ARCHIVES_HOST = "nsearchives.nseindia.com"
+
+#: Real NSE tickers contain `&` and `-`: M&M, BAJAJ-AUTO, J&KBANK, NAM-INDIA,
+#: IL&FSENGG and 17 others in a single day's bhavcopy. An `.isalnum()` check
+#: looks conservative and is simply WRONG - it refused a Nifty 50 constituent.
+#: This still rejects everything injection-shaped, because no NSE symbol
+#: contains a space, `=`, `;`, `/`, `?` or `&index=`-style payloads.
+_SYMBOL_RE = re.compile(r"[A-Z0-9&-]{1,30}")
 
 # This module is entirely about NSE, which trades in IST. date.today() alone
 # reads server-local time - fine on a laptop in India, silently off by 5:30h
@@ -228,7 +237,13 @@ class NseSession:
         """The document behind a filing. Cross-host (archives), so it goes
         through _fetch_raw directly - but only for a URL NSE itself gave us,
         which is checked rather than assumed."""
-        if not url.startswith(ARCHIVES):
+        # startswith() is NOT sufficient and was a real bypass:
+        # "https://nsearchives.nseindia.com.evil.com/x" starts with the
+        # archive prefix and would have sent this cookie-bearing session to
+        # an attacker-controlled host. The URL comes from an NSE PAYLOAD, so
+        # it is remote data and must be parsed, not pattern-matched.
+        parts = urllib.parse.urlsplit(url)
+        if parts.scheme != "https" or parts.netloc != ARCHIVES_HOST:
             raise SourceError(
                 f"refusing to fetch XBRL from {url[:60]!r} - not an NSE "
                 f"archive URL. Pass the link NSE supplied on the filing row."
@@ -237,7 +252,7 @@ class NseSession:
 
     def _research(self, endpoint: str, symbol: str, extra: str = "") -> list[dict]:
         base = symbol.split(".")[0].upper()
-        if not base.isalnum():
+        if not _SYMBOL_RE.fullmatch(base):
             raise SourceError(f"refusing to build a URL from symbol {symbol!r}")
         data = self.get_json(f"{endpoint}?index=equities&symbol={base}{extra}")
         rows = data if isinstance(data, list) else data.get("data")
@@ -707,8 +722,12 @@ _NO_DOCUMENT = f"{ARCHIVES}/corporate/xbrl/-"
 def parse_nse_datetime(s: str | None) -> datetime | None:
     """A timestamp, or None. Never a guess.
 
-    Title-cases the month so '16-JUL-2026' parses the same as '16-Jul-2026' -
-    NSE uses both, on different endpoints.
+    NSE mixes case across endpoints ('16-JUL-2026' and '16-Jul-2026' both
+    occur). No special handling is needed: strptime's %b is already
+    case-insensitive in CPython. An earlier version of this function carried a
+    title-casing retry for that purpose - measured across all 20,556 date-like
+    values in the fixtures, it was reached 7,274 times and changed the outcome
+    zero times. Removed rather than left as reassuring dead code.
     """
     raw = (s or "").strip()
     if not raw or raw in ("-", "NA", "null"):
@@ -718,14 +737,6 @@ def parse_nse_datetime(s: str | None) -> datetime | None:
             return datetime.strptime(raw, fmt)
         except ValueError:
             pass
-    # Mixed case is common enough to be worth one retry rather than a failure.
-    fixed = re.sub(r"\b([A-Za-z]{3})\b", lambda m: m.group(1).title(), raw)
-    if fixed != raw:
-        for fmt in _DT_FORMATS:
-            try:
-                return datetime.strptime(fixed, fmt)
-            except ValueError:
-                pass
     return None
 
 
@@ -895,7 +906,14 @@ def parse_insider_deals(payload: list[dict], symbol: str
     for row in payload:
         if not isinstance(row, dict):
             continue
-        dt = _disclosed(row, "date", "exchdisstime", "acqtoDt")
+        # NOT acqtoDt. That is when the TRANSACTION completed, which in every
+        # sampled row precedes the actual broadcast by 1-5 days - so using it
+        # as `disclosed_at` would tell a backtest the market knew about an
+        # insider trade days before it was disclosed. That is precisely the
+        # leak this module exists to prevent, so a row we cannot date is
+        # reported as undated instead. intimDt (the company's own intimation)
+        # IS a disclosure event and is an acceptable last resort.
+        dt = _disclosed(row, "date", "exchdisstime", "intimDt")
         if dt is None:
             undated.append(Undated(symbol=symbol, kind="insider_deal",
                                    reason="no disclosure timestamp", raw=row))
@@ -926,9 +944,16 @@ def parse_event_calendar(payload: list[dict]) -> list[CorporateEvent]:
         sym = (row.get("symbol") or "").strip()
         if not sym:
             continue
+        event_date = parse_nse_date(row.get("date"))
+        if event_date is None:
+            # The docstring promised this and the code did not do it. An
+            # undated event cannot answer "is this within my holding window",
+            # and a None here would either crash date arithmetic in the event
+            # gate or silently miscount how many events are in range.
+            continue
         out.append(CorporateEvent(
             symbol=sym,
-            event_date=parse_nse_date(row.get("date")),
+            event_date=event_date,
             purpose=(row.get("purpose") or "").strip(),
             company=(row.get("company") or "").strip(),
             description=(row.get("bm_desc") or "").strip(),

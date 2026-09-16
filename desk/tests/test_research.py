@@ -298,18 +298,73 @@ def test_fetch_xbrl_refuses_a_url_that_is_not_an_nse_archive():
     a poisoned payload steers an authenticated session at any host."""
     from desk.marketdata.sources.nse import NseSession
     s = NseSession()
-    for bad in ("https://evil.example/x.xml", "http://nsearchives.nseindia.com/x",
-                "https://www.nseindia.com.evil.example/x"):
+    for bad in (
+        "https://evil.example/x.xml",
+        "http://nsearchives.nseindia.com/x",            # not https
+        "https://www.nseindia.com.evil.example/x",
+        # REGRESSION: these three all pass a startswith(ARCHIVES) check. The
+        # first is the real bypass - the prefix matches exactly and the host
+        # is attacker-controlled, so a cookie-bearing session would have been
+        # sent straight to it. The XBRL URL comes from an NSE payload, i.e.
+        # remote data, so it must be PARSED rather than pattern-matched.
+        "https://nsearchives.nseindia.com.evil.com/x.xml",
+        "https://nsearchives.nseindia.com@evil.example/x.xml",
+        "https://nsearchives.nseindia.com.evil.example:443/x.xml",
+    ):
         with pytest.raises(SourceError, match="not an NSE archive"):
             s.fetch_xbrl(bad)
 
 
-def test_research_endpoints_refuse_a_symbol_that_is_not_alphanumeric():
+def test_fetch_xbrl_accepts_the_genuine_archive_host(monkeypatch):
+    """The guard must not be so tight it rejects the real links NSE gives us."""
     from desk.marketdata.sources.nse import NseSession
     s = NseSession()
-    for bad in ("RELIANCE&index=x", "../../etc/passwd", "A B", "A;rm -rf"):
+    monkeypatch.setattr(NseSession, "_fetch_raw", lambda self, url: b"<xbrl/>")
+    real = ("https://nsearchives.nseindia.com/corporate/xbrl/"
+            "INDAS_117298_1348254_16012025082021.xml")
+    assert s.fetch_xbrl(real) == b"<xbrl/>"
+
+
+def test_research_endpoints_refuse_an_injection_shaped_symbol():
+    from desk.marketdata.sources.nse import NseSession
+    s = NseSession()
+    for bad in ("RELIANCE&index=x", "../../etc/passwd", "A B", "A;rm -rf",
+                "A?x=1", "A/B", "A=1", ""):
         with pytest.raises(SourceError, match="refusing to build a URL"):
             s.fetch_announcements(bad)
+
+
+@pytest.mark.parametrize("symbol", [
+    "M&M", "BAJAJ-AUTO", "J&KBANK", "M&MFIN", "NAM-INDIA",
+    "IL&FSENGG", "GVT&D", "ARE&M", "BOSCH-HCIL", "RELIANCE",
+])
+def test_real_nse_symbols_containing_ampersand_or_hyphen_are_accepted(symbol,
+                                                                      monkeypatch):
+    """REGRESSION: the validator used `.isalnum()`, which rejects `&` and `-`.
+    Measured against one real day's bhavcopy: 22 of 3,485 symbols failed,
+    including M&M - a Nifty 50 constituent - and BAJAJ-AUTO. A check that
+    looks conservative and silently refuses a fifth of the index is not
+    conservative, it is broken."""
+    from desk.marketdata.sources.nse import NseSession
+    s = NseSession()
+    seen = {}
+    monkeypatch.setattr(NseSession, "get_json",
+                        lambda self, path: seen.setdefault("path", path) and [] or [])
+    s.fetch_announcements(symbol)
+    assert f"symbol={symbol}" in seen["path"]
+
+
+def test_every_symbol_in_a_real_bhavcopy_passes_the_validator():
+    """The validator is checked against an entire real trading day rather
+    than a handful of hand-picked names, because the failure mode is 'a name
+    I did not think of is silently unfetchable'."""
+    from desk.marketdata.sources.nse import _SYMBOL_RE
+    import csv, io as _io
+    raw = (FIXTURES / "nse_bhavcopy_20260911.csv").read_bytes().decode("utf-8")
+    symbols = {r[0].strip() for r in csv.reader(_io.StringIO(raw))
+               if r and r[0].strip() and r[0].strip() != "SYMBOL"}
+    rejected = [s for s in symbols if not _SYMBOL_RE.fullmatch(s.upper())]
+    assert not rejected, f"validator rejects real NSE symbols: {sorted(rejected)[:10]}"
 
 
 def test_results_period_argument_is_constrained():
@@ -378,3 +433,71 @@ def test_nse_sentinel_dash_is_treated_as_absent_everywhere(
     assert sum(1 for a in real if a.attachment_url is None) == 456
     assert all(a.attachment_url is None or a.attachment_url.startswith("http")
                for a in real)
+
+
+def test_an_insider_transaction_date_is_never_used_as_a_disclosure_date():
+    """REGRESSION: the fallback chain ended in `acqtoDt`, which is when the
+    TRANSACTION completed - measured 1-5 days before the actual broadcast in
+    every sampled RELIANCE row. Using it as `disclosed_at` tells a backtest
+    the market knew about an insider trade days before it was disclosed,
+    which is exactly the leak this module exists to prevent."""
+    row = {"acqName": "SOMEONE", "acqMode": "Off Market",
+           "acqfromDt": "05-Jan-2025", "acqtoDt": "05-Jan-2025"}
+    deals, undated = parse_insider_deals([row], "X")
+    assert not deals, "a row with only a transaction date must not be dated"
+    assert undated and undated[0].kind == "insider_deal"
+
+    # intimDt IS a disclosure event, so it is an acceptable last resort.
+    with_intim = dict(row, intimDt="09-Jan-2025 19:06:00")
+    deals, undated = parse_insider_deals([with_intim], "X")
+    assert not undated
+    assert deals[0].disclosed_at == datetime(2025, 1, 9, 19, 6)
+    # and the transaction dates are still preserved, just not as disclosure
+    assert deals[0].to_date == date(2025, 1, 5)
+
+
+def test_an_undated_event_is_dropped_as_the_docstring_promises():
+    """REGRESSION: parse_event_calendar's docstring said it drops undated
+    events; the code appended them with event_date=None. The real fixture has
+    no bad rows, so the test passed straight through the discrepancy. A None
+    here either crashes date arithmetic in the event gate or silently
+    miscounts how many events fall inside a holding window."""
+    events = parse_event_calendar([
+        {"symbol": "AAA", "date": "17-Sep-2026", "purpose": "Results"},
+        {"symbol": "BBB", "date": "not-a-date", "purpose": "Results"},
+        {"symbol": "CCC", "purpose": "Results"},
+        {"symbol": "DDD", "date": "-", "purpose": "Results"},
+    ])
+    assert [e.symbol for e in events] == ["AAA"]
+    assert all(e.event_date is not None for e in events)
+
+
+def test_session_phase_converts_a_timezone_aware_datetime_rather_than_dropping_it():
+    """REGRESSION: `.time()` discards tzinfo without complaint, so a UTC
+    09:00 - which is 14:30 IST, mid-session - read as 'before_market'. Wrong
+    answer, no error. Nothing builds an aware datetime today; this is so that
+    whoever wires a UTC-normalised store cannot be caught silently."""
+    from datetime import timedelta, timezone
+
+    utc_mid_session = datetime(2026, 9, 16, 9, 0, tzinfo=timezone.utc)
+    a = Announcement(symbol="X", disclosed_at=utc_mid_session,
+                     category="c", text="t")
+    assert a.session_phase == "during_market"
+
+    ist = timezone(timedelta(hours=5, minutes=30))
+    before = Announcement(symbol="X", category="c", text="t",
+                          disclosed_at=datetime(2026, 9, 16, 9, 0, tzinfo=ist))
+    assert before.session_phase == "before_market"
+
+    # A naive datetime is still read as IST wall-clock, unchanged.
+    naive = Announcement(symbol="X", category="c", text="t",
+                         disclosed_at=datetime(2026, 9, 16, 14, 30))
+    assert naive.session_phase == "during_market"
+
+
+def test_mixed_case_months_parse_without_the_removed_retry():
+    """The title-casing retry was removed as dead code - strptime's %b is
+    already case-insensitive. Pinned so nobody re-adds it 'to be safe'."""
+    assert parse_nse_datetime("16-JUL-2026 19:24:44") == datetime(2026, 7, 16, 19, 24, 44)
+    assert parse_nse_datetime("16-jul-2026") == datetime(2026, 7, 16)
+    assert parse_nse_datetime("16-JuL-2026") == datetime(2026, 7, 16)
