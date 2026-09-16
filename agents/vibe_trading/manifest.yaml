@@ -1,0 +1,76 @@
+# Agent manifest - read by platform/registry/ to decide what this agent can do.
+# Schema mirrors the TradingAgent contract in platform/contracts/.
+
+name: vibe_trading
+kind: hybrid          # BOTH an opinion-producer (LLM agent) AND a quant
+                      # library (factor zoos + backtest engines). The only
+                      # agent in the fleet that spans both roles.
+version: 0.1.14
+upstream:
+  repo: https://github.com/HKUDS/Vibe-Trading
+  pinned_commit: a4f06a2
+  branch: main                 # NO release tags published - see risks below
+  licence: MIT                 # Most permissive in the fleet. No constraints.
+  install_mode: editable       # source == install by construction
+
+provides:
+  - QUANT_FACTORS       # 5 alpha zoos: alpha101 (Kakushadze), gtja191,
+                        # qlib158, academic (Fama-French/Carhart), fundamental
+  - BACKTEST            # 13 market-specific engines
+  - DEEP_RESEARCH       # natural-language LLM research agent
+  - SCREENING           # factor-based cross-sectional ranking
+  - PORTFOLIO           # MPT / Black-Litterman / risk budgeting optimisers
+  - MCP_SERVER          # exposes itself as MCP tools; also an MCP client
+  - MARKET_DATA         # akshare / yfinance / tushare / ccxt / baostock /
+                        # eastmoney / finnhub / fmp / alphavantage loaders
+
+# THE STANDOUT: genuine multi-market coverage no other fleet agent has.
+backtest_engines:
+  - global_equity
+  - india_equity        # <-- first India equity support in the fleet
+  - china_a
+  - china_futures
+  - korea_equity
+  - vietnam_equity
+  - crypto
+  - forex
+  - global_futures
+  - options_portfolio
+  - composite
+
+asset_classes: [EQUITY, CRYPTO, FX, FUTURES, OPTIONS]
+horizons: [SWING, POSITION, LONG_TERM]
+
+# Two cost profiles - the registry must distinguish them.
+cost_profiles:
+  quant_path:           # factors, backtest, optimisers
+    tokens: 0
+    note: "deterministic, offline, free"
+  agent_path:           # `vibe-trading run "..."`
+    tokens: high
+    note: "needs LANGCHAIN_PROVIDER + API key in ~/.vibe-trading/.env"
+
+runtime:
+  python: "3.14.3"
+  venv: .venv                  # isolated - MUST NOT be shared
+  cli: .venv/Scripts/vibe-trading.exe
+  mcp: .venv/Scripts/vibe-trading-mcp.exe
+  config: ~/.vibe-trading/.env # created by `vibe-trading init`
+  cwd_constraint: "run pytest from upstream/agent/ (package-dir is agent/)"
+
+capabilities_absent:
+  - LIVE_EXECUTION      # broker connectors are optional extras, not installed
+
+risks:
+  - "NO RELEASE TAGS. Pinned to a bare commit on main; HEAD moved the same day
+     it was cloned. Re-pin deliberately, never `git pull` casually."
+  - "Beta (0.1.x) and pre-1.0. Expect breaking changes between commits."
+  - "9 of its own tests fail on Windows with WinError 1314 (symlink privilege).
+     Environment limitation, not a code fault - enable Developer Mode to clear."
+
+health_check:
+  command: .venv/Scripts/python.exe smoke_test.py
+  expect_exit: 0
+  last_verified: 2026-09-07
+  last_result: "PASS - 90 skills, 5/5 engines, 5 alpha zoos, 12 factor tests;
+                full tests/factors run: 1,070 passed / 5 skipped / 9 env errors"

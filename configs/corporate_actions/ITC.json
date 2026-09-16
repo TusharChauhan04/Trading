@@ -1,0 +1,145 @@
+{
+  "symbol": "ITC.NS",
+  "actions": [
+    {
+      "ex_date": "2015-06-03",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 6.25,
+      "note": "Dividend - Rs 6.25/- Per Share"
+    },
+    {
+      "ex_date": "2016-05-30",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 8.5,
+      "note": "Dividend-Rs.8.50 Per Share (Including Special Dividend Of Rs.2/- Per Share)."
+    },
+    {
+      "ex_date": "2016-07-01",
+      "type": "bonus",
+      "factor": 1.5,
+      "amount": 0.0,
+      "note": "Bonus 1:2"
+    },
+    {
+      "ex_date": "2017-06-05",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 4.75,
+      "note": "Dividend-Rs 4.75 Per Share"
+    },
+    {
+      "ex_date": "2018-05-25",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 5.15,
+      "note": "Dividend- Rs 5.15 Per Share"
+    },
+    {
+      "ex_date": "2019-05-22",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 5.75,
+      "note": "Dividend - Rs 5.75 Per Share"
+    },
+    {
+      "ex_date": "2020-07-06",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 10.15,
+      "note": "Dividend - Rs 10.15 Per Share"
+    },
+    {
+      "ex_date": "2021-02-22",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 5.0,
+      "note": "Interim Dividend - Rs 5 Per Share"
+    },
+    {
+      "ex_date": "2021-06-10",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 5.75,
+      "note": "Dividend - Rs 5.75 Per Share"
+    },
+    {
+      "ex_date": "2022-02-14",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 5.25,
+      "note": "Interim Dividend - Rs 5.25 Per Share"
+    },
+    {
+      "ex_date": "2022-05-26",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 6.25,
+      "note": "Dividend - Rs 6.25 Per Share"
+    },
+    {
+      "ex_date": "2023-02-15",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 6.0,
+      "note": "Interim Dividend - Rs  6 Per Share"
+    },
+    {
+      "ex_date": "2023-05-30",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 9.5,
+      "note": "Dividend - Rs 6.75 Per Share /Special Dividend - Rs 2.75 Per Share"
+    },
+    {
+      "ex_date": "2024-02-08",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 6.25,
+      "note": "Interim Dividend - Rs 6.25 Per Share"
+    },
+    {
+      "ex_date": "2024-06-04",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 7.5,
+      "note": "Dividend - Rs 7.50 Per Share"
+    },
+    {
+      "ex_date": "2025-02-12",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 6.5,
+      "note": "Interim Dividend - Rs 6.50 Per Share"
+    },
+    {
+      "ex_date": "2025-05-28",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 7.85,
+      "note": "Dividend - Rs 7.85 Per Share"
+    },
+    {
+      "ex_date": "2026-02-04",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 6.5,
+      "note": "Interim Dividend - Rs 6.50 Per Share"
+    },
+    {
+      "ex_date": "2026-05-27",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 8.0,
+      "note": "Dividend - Rs 8 Per Share"
+    }
+  ],
+  "unparsed": [
+    {
+      "ex_date": "2025-01-06",
+      "subject": "Demerger",
+      "reason": "moves the price but cannot be reduced to one factor"
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+# Freqtrade agent — verified working set on Windows x86_64 / CPython 3.14.3
+# Frozen 2026-09-07 after smoke_test.py passed (backtest + hyperopt).
+#
+# Install into THIS agent's own venv only:
+#   py -m venv agents/freqtrade/.venv
+#   agents/freqtrade/.venv/Scripts/python.exe -m pip install -r agents/freqtrade/requirements.txt
+
+freqtrade[hyperopt,plot]==2026.8
+
+# CRITICAL PIN. freqtrade declares `joblib>=1.2.0` with NO upper bound, but
+# joblib 1.6.0 removed `joblib.externals.cloudpickle`, which
+# freqtrade/optimize/hyperopt/hyperopt_optimizer.py imports directly.
+# With joblib 1.6.0 the whole hyperopt subsystem fails at import:
+#   ImportError: cannot import name 'cloudpickle' from 'joblib.externals'
+# Backtesting still works without this pin; hyperopt does not.
+joblib==1.5.3
+
+# Verified transitive versions (freqtrade is pure-Python; these carry the
+# native code). pandas 3.0.5 is FINE here — unlike the nautilus_trader agent,
+# which must stay below pandas 3. The two agents disagree, which is exactly
+# why they get separate virtualenvs.
+TA-Lib==0.7.1
+ccxt==4.5.77
+pandas==3.0.5
+numpy==2.5.3
+scipy==1.18.1
+scikit-learn==1.9.0
+optuna==5.0.0
+cmaes==0.13.1
+plotly==7.0.0
+pyarrow==25.0.1
+SQLAlchemy==2.0.52
+fastapi==0.141.1
+python-telegram-bot==22.8
+technical==1.7.0
+ft-pandas-ta==0.3.16
+
+# DELIBERATELY NOT INSTALLED: freqtrade[freqai_rl] pulls torch +
+# stable-baselines3 + sb3-contrib (~2.5 GB). The FreqAI module itself imports
+# fine; only the deep-RL backends are absent. Add later if RL is ever wanted:
+#   pip install "freqtrade[freqai,freqai_rl]"

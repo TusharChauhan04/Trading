@@ -1,0 +1,143 @@
+{
+  "symbol": "RELIANCE.NS",
+  "actions": [
+    {
+      "ex_date": "2011-05-05",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 8.0,
+      "note": "Dividend-Rs.8/- Per Share"
+    },
+    {
+      "ex_date": "2012-05-31",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 8.5,
+      "note": "Annual General Meeting And Dividend Rs.8.50 Per Share"
+    },
+    {
+      "ex_date": "2013-05-10",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 9.0,
+      "note": "Annual General Meeting/ Dividend Rs. 9 Per Equity Share"
+    },
+    {
+      "ex_date": "2014-05-16",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 9.5,
+      "note": "Dividend Rs. 9.50 Per Equity Share"
+    },
+    {
+      "ex_date": "2015-05-08",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 10.0,
+      "note": "Dividend - Rs 10/- Per Share"
+    },
+    {
+      "ex_date": "2016-03-17",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 10.5,
+      "note": "Interim Dividend - Rs 10.50/- Per Share (Purpose Revised)"
+    },
+    {
+      "ex_date": "2017-07-13",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 11.0,
+      "note": "Dividend -  Rs 11/- Per Share"
+    },
+    {
+      "ex_date": "2017-09-07",
+      "type": "bonus",
+      "factor": 2.0,
+      "amount": 0.0,
+      "note": "Bonus 1:1"
+    },
+    {
+      "ex_date": "2018-06-27",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 6.0,
+      "note": "Dividend- Rs 6 Per Share"
+    },
+    {
+      "ex_date": "2019-08-02",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 6.5,
+      "note": "Annual General Meeting/Dividend - Rs 6.50 Per Share"
+    },
+    {
+      "ex_date": "2020-07-02",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 6.5,
+      "note": "Dividend - Rs 6.50  Per Share"
+    },
+    {
+      "ex_date": "2021-06-11",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 7.0,
+      "note": "Dividend - Rs 7 Per Share"
+    },
+    {
+      "ex_date": "2022-08-18",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 8.0,
+      "note": "Dividend - Rs 8 Per Share"
+    },
+    {
+      "ex_date": "2023-08-21",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 9.0,
+      "note": "Dividend - Rs 9 Per Share"
+    },
+    {
+      "ex_date": "2024-08-19",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 10.0,
+      "note": "Dividend - Rs 10 Per Share"
+    },
+    {
+      "ex_date": "2024-10-28",
+      "type": "bonus",
+      "factor": 2.0,
+      "amount": 0.0,
+      "note": "Bonus 1:1"
+    },
+    {
+      "ex_date": "2025-08-14",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 5.5,
+      "note": "Dividend - Rs 5.5 Per Share"
+    },
+    {
+      "ex_date": "2026-06-05",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 6.0,
+      "note": "Dividend - Rs 6 Per Share"
+    }
+  ],
+  "unparsed": [
+    {
+      "ex_date": "2023-07-20",
+      "subject": "Demerger",
+      "reason": "moves the price but cannot be reduced to one factor"
+    },
+    {
+      "ex_date": "2020-05-13",
+      "subject": " Rights 1:15 @ Premium Rs 1247",
+      "reason": "moves the price but cannot be reduced to one factor"
+    }
+  ]
+}

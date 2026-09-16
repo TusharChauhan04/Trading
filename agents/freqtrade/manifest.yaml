@@ -1,0 +1,51 @@
+# Agent manifest — read by platform/registry/ to decide what this agent can do.
+# Schema mirrors the TradingAgent contract in platform/contracts/.
+
+name: freqtrade
+kind: bot             # A complete self-contained trading bot, not a library and
+                      # not an opinion-producer. It owns its own loop and state.
+version: 2026.8
+upstream:
+  repo: https://github.com/freqtrade/freqtrade
+  branch: stable
+  pinned_tag: "2026.8"
+  pinned_commit: 9f10e35
+  licence: GPL-3.0            # STRONG copyleft — stronger than Nautilus's LGPL.
+                              # See notes: keep at arm's length, subprocess only.
+
+provides:
+  - BACKTEST            # vectorised, pandas-based, whole-dataframe signals
+  - HYPEROPT            # optuna-driven parameter search — the differentiator
+  - SCREENING           # VolumePairList & friends — dynamic universe selection
+  - EXECUTION           # live/dry-run via ccxt
+  - PORTFOLIO_STATE     # SQLite trade ledger, wallets
+  - TECHNICAL           # TA-Lib + ft-pandas-ta + `technical` indicator packs
+
+asset_classes:
+  - CRYPTO              # ONLY. No equities, no FX, no futures beyond crypto derivs.
+
+horizons:
+  - INTRADAY
+  - SWING
+
+# Deterministic given the same data and parameters. No LLM, no token cost.
+cost_per_call:
+  tokens: 0
+  wall_clock_note: "backtest ~3s on 10d of 5m bars; hyperopt ~2s/epoch single-worker"
+
+runtime:
+  python: "3.14.3"
+  venv: .venv                      # isolated — MUST NOT be shared
+  cli: .venv/Scripts/freqtrade.exe
+  userdir: user_data               # strategies, data, results, logs
+  smoke_config: config.smoke.json  # offline, dry_run, no keys, no network
+
+capabilities_absent:
+  - FREQAI_RL           # torch / stable-baselines3 not installed (~2.5 GB)
+  - NON_CRYPTO          # architecturally crypto-only
+
+health_check:
+  command: .venv/Scripts/python.exe smoke_test.py
+  expect_exit: 0
+  last_verified: 2026-09-07
+  last_result: "PASS — backtest 6 trades / 83.3% win, hyperopt 6/6 epochs"

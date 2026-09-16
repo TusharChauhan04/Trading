@@ -1,0 +1,54 @@
+# Vibe-Trading agent - verified working set on Windows x86_64 / CPython 3.14.3
+# Frozen 2026-09-07 after smoke_test.py passed (1,070 factor tests green).
+#
+# NOTE: installed EDITABLE from the pinned clone, so source == install by
+# construction. Reproduce with:
+#   py -m venv agents/vibe_trading/.venv
+#   agents/vibe_trading/.venv/Scripts/python.exe -m pip install -e agents/vibe_trading/upstream
+#
+# This file records the versions that were VERIFIED, for diagnosis when a
+# future resolve drifts. It is not the install command.
+
+# -- the package itself (editable from upstream/, pyproject version 0.1.14) --
+# vibe-trading-ai==0.1.14   # installed via `pip install -e upstream/`
+
+# -- LLM / agent stack --
+langchain==1.4.0
+langchain-core==1.6.2
+langchain-openai==1.6.0
+langgraph==1.2.11
+openai==3.8.0
+fastmcp==3.4.7
+mcp==1.29.1
+
+# -- data / compute --
+# Unlike the other three agents, Vibe-Trading declares `pandas>=2.0.0,<3.0.0`
+# with a CORRECT upper bound, so pip resolved 2.3.3 on its own. No manual pin
+# was needed here - the only repo in the fleet that got this right.
+pandas==2.3.3
+numpy==2.5.3
+scipy==1.18.1
+scikit-learn==1.9.0
+duckdb==1.5.5
+matplotlib==3.11.1
+
+# -- market data providers (keyless unless noted) --
+yfinance==1.7.0
+akshare==1.18.94
+ccxt==4.5.77
+tushare==1.4.29        # needs TUSHARE_TOKEN for China A-share
+
+# -- serving / reporting --
+fastapi==0.141.1
+weasyprint==69.0
+
+# -- test tooling (added by us, not by upstream) --
+pytest==9.1.1
+pytest-asyncio
+
+# DELIBERATELY NOT INSTALLED - optional broker extras, add only when needed:
+#   pip install -e "upstream[mt5]"       MetaTrader5 (Windows-only bridge)
+#   pip install -e "upstream[zerodha]"   Kite Connect - India NSE/BSE
+#   pip install -e "upstream[ibkr]"      Interactive Brokers via ib_async
+#   pip install -e "upstream[longbridge]"
+#   pip install -e "upstream[deepseek]"  langchain-deepseek provider

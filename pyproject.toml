@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "india-desk"
+version = "0.2.0"
+description = "NSE/BSE daily decision-support. Research and risk only."
+requires-python = ">=3.12"
+# Pinned to what has actually been run and tested (2026-09-12), not a loose
+# range - the recurring defect found across every vendored repo audited for
+# this project was an upper bound that was never re-verified.
+dependencies = [
+    "fastapi==0.141.1",
+    "pydantic==2.13.5",
+    "numpy==2.5.3",
+    "pandas==2.3.3",
+    "uvicorn==0.52.4",
+    "pyarrow==25.0.1",     # Parquet I/O - see desk/marketdata/sources/nse.py's
+                           # bhavcopy fetcher and refresh.py's "bhavcopy" command
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    # fastapi.testclient refuses to import without it. It was present in
+    # the old venv but never declared, so a clean rebuild could not even
+    # COLLECT the API tests.
+    "httpx2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["desk"]
+
+[tool.skylos]
+# Static analysis gate. Installed on instruction and now actually wired in.
+#
+# Scope is deliberately narrow: only code we write. Vendored repositories are
+# excluded because we do not edit them (standing rule), so their dead code is
+# not our finding to act on - and including them buries ours in noise.
+exclude = [
+    "agents/*/upstream",
+    "agents/*/.venv",
+    ".venv",
+    "web/node_modules",
+    "TradingAgents",
+    "**/__pycache__",
+]
+
+# Tests legitimately contain code nothing else calls.
+exclude_tests = false
+
+[tool.pytest.ini_options]
+testpaths = ["desk/tests"]

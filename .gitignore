@@ -1,0 +1,43 @@
+# Written BEFORE the first `git init` on purpose - `.venv/` alone is ~190MB,
+# and TradingAgents/ and every agents/*/ already carry their own nested .git
+# directories that would land as broken submodule gitlinks otherwise.
+#
+# The repo was finally created on 2026-09-16, the day after OneDrive
+# dehydrated the entire working tree and the absence of version control
+# turned a sync glitch into a multi-hour reconstruction from session logs.
+# See docs/recovery-2026-09-16/STATUS.md.
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.skylos/
+
+# Vendored repos - each is its own git history, never ours to track
+TradingAgents/
+agents/*/upstream/
+agents/*/.venv/
+
+# Frontend
+web/node_modules/
+web/dist/
+
+# Fetched market data - regenerable from NSE and accumulating (~258KB per
+# trading day, ~65MB/year), so it is a cache, not configuration. The small
+# generated configs that ARE worth tracking - holidays_nse.json and the
+# per-symbol corporate_actions/*.json - stay tracked deliberately: they are
+# correctness-critical, stable, and small enough to diff.
+configs/bhavcopy/
+
+# Local, machine-specific
+*.tmp
+*.json.tmp
+*.parquet.tmp
+
+# megamemory's SQLite working files are transient and churn on every write.
+# The database itself IS tracked - it is the project knowledge graph, and
+# losing it loses every recorded decision.
+.megamemory/*.db-wal
+.megamemory/*.db-shm

@@ -1,0 +1,127 @@
+{
+  "symbol": "IRCTC.NS",
+  "actions": [
+    {
+      "ex_date": "2020-02-24",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 10.0,
+      "note": "Interim Dividend - Rs 10 Per Share"
+    },
+    {
+      "ex_date": "2020-10-19",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 2.5,
+      "note": "Dividend - Rs 2.50 Per Share"
+    },
+    {
+      "ex_date": "2021-09-21",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 5.0,
+      "note": "Dividend - Rs 5 Per Share"
+    },
+    {
+      "ex_date": "2021-10-28",
+      "type": "split",
+      "factor": 5.0,
+      "amount": 0.0,
+      "note": "Face Value Split (Sub-Division) - From Rs 10/- Per Share To Rs 2/- Per Share"
+    },
+    {
+      "ex_date": "2022-02-17",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 2.0,
+      "note": "Interim Dividend - Rs 2 Per Share"
+    },
+    {
+      "ex_date": "2022-08-18",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 1.5,
+      "note": "Annual General Meeting/Dividend - Rs  1.50 Per Share"
+    },
+    {
+      "ex_date": "2023-02-22",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 3.5,
+      "note": "Interim Dividend - Rs 3.50 Per Share"
+    },
+    {
+      "ex_date": "2023-08-18",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 2.0,
+      "note": "Annual General Meeting/Dividend - Rs  2 Per Share"
+    },
+    {
+      "ex_date": "2023-11-17",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 2.5,
+      "note": "Interim Dividend - Rs 2.50 Per Share"
+    },
+    {
+      "ex_date": "2024-08-23",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 4.0,
+      "note": "Dividend - Rs 4 Per Share"
+    },
+    {
+      "ex_date": "2024-11-14",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 4.0,
+      "note": "Interim Dividend - Rs 4 Per Share"
+    },
+    {
+      "ex_date": "2025-02-20",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 3.0,
+      "note": "Interim Dividend - Rs 3 Per Share"
+    },
+    {
+      "ex_date": "2025-08-22",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 1.0,
+      "note": "Dividend - Re 1 Per Share"
+    },
+    {
+      "ex_date": "2025-11-21",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 5.0,
+      "note": "Interim Dividend - Rs 5 Per Share"
+    },
+    {
+      "ex_date": "2026-02-20",
+      "type": "dividend",
+      "factor": 1.0,
+      "amount": 3.5,
+      "note": "Interim Dividend - Rs 3.50 Per Share"
+    }
+  ],
+  "unparsed": [
+    {
+      "ex_date": "2024-08-23",
+      "subject": "Annual General Meeting",
+      "reason": "not price-affecting"
+    },
+    {
+      "ex_date": "2021-09-21",
+      "subject": " Annual General Meeting",
+      "reason": "not price-affecting"
+    },
+    {
+      "ex_date": "2020-10-19",
+      "subject": " Annual General Meeting",
+      "reason": "not price-affecting"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+# NautilusTrader agent — verified working set on Windows x86_64 / CPython 3.14.3
+# Frozen 2026-09-07 after smoke_test.py passed (810 fills / 405 positions).
+#
+# Install into THIS agent's own venv only:
+#   py -m venv agents/nautilus_trader/.venv
+#   agents/nautilus_trader/.venv/Scripts/python.exe -m pip install -r agents/nautilus_trader/requirements.txt
+
+nautilus_trader==1.231.0
+
+# CRITICAL PIN. nautilus_trader 1.231.0 declares `pandas<4.0.0,>=2.3.3`, which is
+# too loose: pandas 3.x enables copy-on-write, handing Cython read-only buffers.
+# BarDataWrangler.process() then dies with "buffer source array is read-only".
+# Do not relax this until nautilus ships a pandas-3 compatible wrangler.
+pandas==2.3.3
+
+# Transitive, pinned to the exact set the smoke test passed against.
+click==8.5.0
+colorama==0.4.6
+fsspec==2026.2.0
+msgspec==0.21.1
+numpy==2.5.3
+portion==2.6.2
+pyarrow==25.0.1
+python-dateutil==2.9.0.post0
+pytz==2026.3.post1
+six==1.17.0
+sortedcontainers==2.4.0
+tqdm==4.70.0
+tzdata==2026.3
