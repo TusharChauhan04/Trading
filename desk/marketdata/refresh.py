@@ -19,10 +19,29 @@ import argparse
 import json
 import os
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from desk.marketdata.calendar_in import CalendarError, TradingCalendar
+from desk.marketdata.sources.nse import (
+    NseSession,
+    RateLimited,
+    SourceError,
+    bhavcopy_equity_only,
+    parse_bhavcopy,
+    parse_corporate_actions,
+    parse_holiday_master,
+)
+from desk.marketdata.symbols import Symbol, SymbolError
+from desk.research.sources.nse import (
+    parse_announcements,
+    parse_board_meetings,
+    parse_insider_deals,
+    parse_results,
+    parse_shareholding,
+)
+from desk.research.store import FilingStore
+from desk.research.xbrl import XbrlError, parse_xbrl
 
 
 def _merge_calendars(existing: dict, fresh: dict) -> dict:
@@ -63,15 +82,6 @@ def _merge_calendars(existing: dict, fresh: dict) -> dict:
             f"malformed 'years' in the holiday data: {exc}"
         ) from exc
     return merged
-from desk.marketdata.symbols import Symbol, SymbolError
-from desk.marketdata.sources.nse import (
-    NseSession,
-    SourceError,
-    bhavcopy_equity_only,
-    parse_bhavcopy,
-    parse_corporate_actions,
-    parse_holiday_master,
-)
 
 #: Must agree with desk.api.main.CONFIGS - the refresh CLI writes what the
 #: API reads, so a deployment that moves one and not the other silently
@@ -189,6 +199,159 @@ def refresh_actions(session: NseSession, symbols: list[str], out_dir: Path) -> i
     return 1 if failed else 0
 
 
+#: The five per-symbol research endpoints. `filings` is listed first because
+#: it is the only one that also fetches a second document per record (the
+#: XBRL), so a run bounded by --kinds filings is the expensive one.
+RESEARCH_KINDS = ("filings", "announcements", "boardmeetings",
+                  "shareholding", "insider")
+
+
+def refresh_research(session: NseSession, symbols: list[str], out_dir: Path, *,
+                     kinds: tuple[str, ...] = RESEARCH_KINDS,
+                     with_xbrl: bool = True,
+                     force: bool = False) -> int:
+    """Fetch exchange-disclosed research for one or more symbols.
+
+    RESUMABLE BY DESIGN, not as an afterthought. A full-universe pass is
+    ~1,598 symbols x 5 endpoints, and at the session's 1s throttle that is
+    over two hours - it will not reliably complete in one sitting. A symbol
+    whose output already exists is skipped unless --force, so an interrupted
+    or rate-limited run restarts from where it stopped rather than from zero.
+
+    Prints a progress counter because a multi-hour run with no output is
+    indistinguishable from a hung one.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    filings_store = FilingStore(out_dir / "filings")
+    failed = 0
+    skipped = 0
+    total_undated = 0
+    total = len(symbols)
+
+    for i, raw_symbol in enumerate(symbols, 1):
+        # Same validation as refresh_actions, and for the same reason: this
+        # value becomes a path component, and pathlib discards the left
+        # operand when the right is absolute.
+        try:
+            base = Symbol.parse(raw_symbol).base
+        except SymbolError as exc:
+            print(f"[{i}/{total}] {raw_symbol[:24]:14} SKIPPED  {exc}")
+            failed += 1
+            continue
+
+        marker = out_dir / "_done" / f"{base}.json"
+        if marker.exists() and not force:
+            skipped += 1
+            continue
+
+        counts: dict[str, int] = {}
+        undated_here: list = []
+        try:
+            for kind in kinds:
+                n, und = _fetch_one_kind(session, base, kind, out_dir,
+                                         filings_store, with_xbrl=with_xbrl)
+                counts[kind] = n
+                undated_here.extend(und)
+        except RateLimited as exc:
+            # Stop the whole run rather than grinding through 1,500 more
+            # symbols against a host that is already refusing us. The marker
+            # files mean the next run picks up here.
+            print(f"[{i}/{total}] {base:14} RATE LIMITED  {exc}")
+            print(f"\nStopped at {base}. {i - 1} symbol(s) completed; rerun the "
+                  f"same command to resume from here.")
+            return 2
+        except SourceError as exc:
+            print(f"[{i}/{total}] {base:14} FAILED  {exc}")
+            failed += 1
+            continue
+
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(json.dumps(
+            {"symbol": base, "counts": counts,
+             "undated": len(undated_here),
+             "fetched_at": datetime.now().isoformat(timespec="seconds")},
+            indent=1), encoding="utf-8")
+
+        summary = " ".join(f"{k}={v}" for k, v in counts.items())
+        print(f"[{i}/{total}] {base:14} {summary}")
+
+        # Surfaced on the console AS IT HAPPENS, not only in a file. A record
+        # NSE published without a usable timestamp is the early warning that
+        # a field has been renamed, and an operator watching a run should see
+        # it then rather than discover it months later when a filing is
+        # inexplicably missing from a backtest.
+        for u in undated_here[:3]:
+            print(f"               UNDATED {u}")
+        if len(undated_here) > 3:
+            print(f"               UNDATED +{len(undated_here) - 3} more")
+        total_undated += len(undated_here)
+
+    if skipped:
+        print(f"\n{skipped} symbol(s) already fetched and skipped. "
+              f"Pass --force to refetch.")
+    if total_undated:
+        print(f"{total_undated} record(s) had no usable disclosure timestamp "
+              f"and were NOT stored. They are listed above; if this number is "
+              f"large, a field has probably been renamed.")
+    if failed:
+        print(f"{failed} symbol(s) failed. Exiting non-zero so a scheduled "
+              f"run does not report success.")
+    return 1 if failed else 0
+
+
+def _fetch_one_kind(session: NseSession, base: str, kind: str, out_dir: Path,
+                    filings_store: "FilingStore", *, with_xbrl: bool):
+    """One endpoint for one symbol. Returns (records written, undated)."""
+    if kind == "filings":
+        filings, undated = parse_results(session.fetch_results(base), base)
+        for f in filings:
+            periods = ()
+            if with_xbrl and f.xbrl_url:
+                try:
+                    periods, _warn = parse_xbrl(session.fetch_xbrl(f.xbrl_url),
+                                                symbol=base)
+                except (SourceError, XbrlError) as exc:
+                    # A filing whose document cannot be read is still a filing.
+                    # Store the record without numbers rather than losing the
+                    # disclosure entirely.
+                    print(f"               XBRL unreadable for "
+                          f"{f.relating_to or f.period_end}: {exc}")
+            filings_store.write(f, periods)
+        return len(filings), undated
+
+    fetch, parse = {
+        "announcements": (session.fetch_announcements, parse_announcements),
+        "boardmeetings": (session.fetch_board_meetings, parse_board_meetings),
+        "shareholding": (session.fetch_shareholding, parse_shareholding),
+        "insider": (session.fetch_insider_deals, parse_insider_deals),
+    }[kind]
+
+    records, undated = parse(fetch(base), base)
+    dest = out_dir / kind / f"{base}.json"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps({
+        "symbol": f"{base}.NS",
+        "fetched_at": datetime.now().isoformat(timespec="seconds"),
+        "records": [_research_to_json(r) for r in records],
+        # Written into the file as well as printed. Printed-only means lost
+        # the moment the terminal scrolls, and this is the list that says
+        # what the exchange published and we could not use.
+        "undated": [{"kind": u.kind, "reason": u.reason, "raw": u.raw}
+                    for u in undated],
+    }, indent=1), encoding="utf-8")
+    tmp.replace(dest)
+    return len(records), undated
+
+
+def _research_to_json(rec) -> dict:
+    out = {}
+    for field_name in rec.__slots__:
+        v = getattr(rec, field_name)
+        out[field_name] = v.isoformat() if hasattr(v, "isoformat") else v
+    return out
+
+
 def refresh_bhavcopy(session: NseSession, day: date, out_dir: Path) -> int:
     """Fetch and save ONE day's full-market snapshot as Parquet.
 
@@ -236,6 +399,25 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("symbols", nargs="+")
     a.add_argument("--out-dir", type=Path, default=CONFIGS / "corporate_actions")
 
+    r = sub.add_parser("research",
+                       help="filings, announcements, board meetings, "
+                            "shareholding and insider deals for one or more "
+                            "symbols")
+    r.add_argument("symbols", nargs="+")
+    r.add_argument("--out-dir", type=Path, default=CONFIGS / "research")
+    r.add_argument("--kinds", default=",".join(RESEARCH_KINDS),
+                   help=f"comma-separated subset of {','.join(RESEARCH_KINDS)}")
+    r.add_argument("--no-xbrl", action="store_true",
+                   help="skip the financial documents - much faster, but the "
+                        "filings are then records that a result was announced "
+                        "rather than the numbers themselves")
+    r.add_argument("--force", action="store_true",
+                   help="refetch symbols already on file (default is to skip "
+                        "them, so an interrupted run resumes)")
+    r.add_argument("--min-interval", type=float, default=1.0,
+                   help="seconds between requests (default 1.0). NSE "
+                        "rate-limits; lower this deliberately or not at all")
+
     b = sub.add_parser("bhavcopy",
                        help="one day's full bhavcopy - the WHOLE exchange in "
                             "a single request, not per symbol")
@@ -244,13 +426,24 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--out-dir", type=Path, default=CONFIGS / "bhavcopy")
 
     args = p.parse_args(argv)
-    session = NseSession()
+    interval = getattr(args, "min_interval", 1.0)
+    session = NseSession(min_interval=interval)
 
     try:
         if args.what == "calendar":
             return refresh_calendar(session, args.out, replace=args.replace)
         if args.what == "bhavcopy":
             return refresh_bhavcopy(session, args.date, args.out_dir)
+        if args.what == "research":
+            kinds = tuple(k.strip() for k in args.kinds.split(",") if k.strip())
+            unknown = [k for k in kinds if k not in RESEARCH_KINDS]
+            if unknown:
+                print(f"ERROR: unknown kind(s) {unknown}. Choose from "
+                      f"{list(RESEARCH_KINDS)}.", file=sys.stderr)
+                return 1
+            return refresh_research(session, args.symbols, args.out_dir,
+                                    kinds=kinds, with_xbrl=not args.no_xbrl,
+                                    force=args.force)
         return refresh_actions(session, args.symbols, args.out_dir)
     except CalendarError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

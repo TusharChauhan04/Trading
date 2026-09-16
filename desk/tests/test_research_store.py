@@ -299,3 +299,40 @@ def test_latest_keeps_looking_when_the_newest_lacks_the_period_asked_for(store):
         == datetime(2025, 4, 20, 20, 0)
     with_numbers = store.latest("AAA", as_of=at_open(date(2025, 5, 1)), months=3)
     assert with_numbers.disclosed_at == datetime(2025, 1, 16, 20, 0)
+
+
+def test_standalone_and_consolidated_filed_in_the_same_second_both_survive(store):
+    """REGRESSION, and it cost 5 of RELIANCE's 122 filings before it was
+    caught. A company files its STANDALONE and CONSOLIDATED results in the
+    same second for the same period - RELIANCE did it on 2022-10-21,
+    2018-01-24, 2017-10-17, 2015-10-20 and 2014-10-13. Keyed on timestamp and
+    period alone, one silently overwrote the other, and WHICH one survived
+    depended on write order. Consolidated revenue is roughly twice standalone,
+    so the survivor was not merely arbitrary - it was arbitrarily one of two
+    very different numbers."""
+    when = datetime(2022, 10, 21, 19, 58, 47)
+    store.write(_filing(when, end=date(2022, 9, 30), consolidated=True))
+    store.write(_filing(when, end=date(2022, 9, 30), consolidated=False))
+    store.write(_filing(when, end=date(2022, 9, 30), consolidated=None))
+
+    got = store.for_symbol("AAA", as_of=at_open(date(2022, 10, 22)))
+    assert len(got) == 3
+    assert {r.filing.consolidated for r in got} == {True, False, None}
+
+
+def test_the_whole_reliance_filing_history_round_trips_without_loss(store):
+    """Against the real payload rather than a constructed pair - 122 filings
+    in, 122 files out. This is the test that would have caught the collision
+    at the time, and it is the shape of check worth having wherever a
+    filename is a primary key."""
+    import json as _json
+
+    rows = _json.loads((FIXTURES / "nse_results_RELIANCE.json")
+                       .read_text(encoding="utf-8"))
+    rows = rows if isinstance(rows, list) else rows.get("data", [])
+    from desk.research.sources.nse import parse_results
+
+    filings, _ = parse_results(rows, "RELIANCE")
+    for f in filings:
+        store.write(f)
+    assert len(list((store.root / "RELIANCE").iterdir())) == len(filings) == 122

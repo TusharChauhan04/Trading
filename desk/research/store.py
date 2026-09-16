@@ -140,12 +140,22 @@ class FilingStore:
 
     @staticmethod
     def _filename(filing: Filing) -> str:
-        # The period end disambiguates two filings disclosed in the same
-        # second (a company filing standalone and consolidated together),
-        # which is otherwise a silent overwrite of one by the other.
-        tag = (filing.period_end.isoformat().replace("-", "")
-               if filing.period_end else "na")
-        return f"{filing.disclosed_at.strftime(_TS)}_{tag}.json"
+        """Timestamp + period + nature.
+
+        All three are needed, and finding that out cost 5 of RELIANCE's 122
+        filings. A company files its STANDALONE and CONSOLIDATED results in
+        the same second for the same period - it happened on 2022-10-21,
+        2018-01-24, 2017-10-17, 2015-10-20 and 2014-10-13. Keyed on timestamp
+        and period alone, one silently overwrote the other, and which one
+        survived depended on write order. For RELIANCE consolidated revenue is
+        roughly twice standalone, so the surviving file was not merely
+        arbitrary - it was arbitrarily one of two very different numbers.
+        """
+        period = (filing.period_end.isoformat().replace("-", "")
+                  if filing.period_end else "na")
+        nature = ("C" if filing.consolidated else
+                  "S" if filing.consolidated is False else "U")
+        return f"{filing.disclosed_at.strftime(_TS)}_{period}{nature}.json"
 
     # --------------------------------------------------------------- read --
 
