@@ -775,3 +775,51 @@ def test_the_transport_module_does_not_depend_on_the_research_domain():
     imported = {n.module for n in ast.walk(ast.parse(src))
                 if isinstance(n, ast.ImportFrom) and n.module}
     assert not any(m.startswith("desk.research") for m in imported), imported
+
+
+def test_the_marketdata_package_does_not_depend_on_the_research_domain():
+    """Direction of the dependency. research imports marketdata for the HTTP
+    session, which is genuinely cross-cutting; marketdata must not import
+    research back, or neither package sits above the other and R5/R6 have
+    nowhere unambiguous to live.
+
+    The one permitted exception is the CLI dispatcher in
+    desk/marketdata/refresh.py, which imports the research entry point purely
+    to route a subcommand to it."""
+    import ast
+    import pathlib
+
+    offenders = []
+    for f in pathlib.Path("desk/marketdata").rglob("*.py"):
+        tree = ast.parse(f.read_text(encoding="utf-8"))
+        for n in ast.walk(tree):
+            if (isinstance(n, ast.ImportFrom) and n.module
+                    and n.module.startswith("desk.research")):
+                offenders.append((f.name, n.module))
+    assert offenders == [("refresh.py", "desk.research.refresh")], offenders
+
+
+def test_the_shared_payload_helpers_are_public_not_borrowed_privates():
+    """REGRESSION: research/sources/nse.py imported _num, _s and _text_or_none
+    from marketdata/sources/nse.py - three private names across a package
+    boundary. R6's BSE parser needs the same helpers, and the pattern on offer
+    was 'reach into NSE's internals or copy them'."""
+    from desk.marketdata.text import ABSENT, as_float, as_text, text_or_none
+
+    assert as_text(None) == "" and as_text(123) == "123" and as_text(" x ") == "x"
+    assert text_or_none("-") is None and text_or_none("NA") is None
+    assert text_or_none("https://x") == "https://x"
+    assert as_float("1,234.5") == 1234.5 and as_float(0) == 0.0
+    assert as_float(float("nan")) is None and as_float("Infinity") is None
+    assert "-" in ABSENT
+
+
+def test_the_two_stores_no_longer_share_an_exception_name():
+    """Two unrelated StoreError classes meant `except StoreError` written
+    against one import silently would not catch the other - and Stage 2 will
+    want to catch a bars problem and a filings problem in one place."""
+    from desk.research.store import FilingStoreError
+    from desk.store import StoreError as BarsStoreError
+
+    assert FilingStoreError is not BarsStoreError
+    assert not issubclass(FilingStoreError, BarsStoreError)

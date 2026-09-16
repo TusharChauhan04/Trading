@@ -23,13 +23,10 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 
-from desk.marketdata.sources.nse import (
-    ARCHIVES,
-    _num,
-    _s,
-    _text_or_none,
-    parse_nse_date,
-)
+from desk.marketdata.sources.nse import ARCHIVES, parse_nse_date
+from desk.marketdata.text import as_float as _num
+from desk.marketdata.text import as_text as _s
+from desk.marketdata.text import text_or_none as _text_or_none
 from desk.research.models import (
     Announcement,
     BoardMeeting,

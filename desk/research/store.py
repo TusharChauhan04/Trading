@@ -45,7 +45,8 @@ from pathlib import Path
 from desk.research.models import Filing, ResultPeriod
 from desk.research.xbrl import FinancialFacts
 
-__all__ = ["FilingStore", "StoredFiling", "StoreError", "at_open"]
+__all__ = ["FilingStore", "FilingStoreError", "StoredFiling", "StoreError",
+           "at_open"]
 
 #: NSE's normal session opens 09:15 IST. A date-only `as_of` almost always
 #: means "as the market opened that day", so this is the conversion rather
@@ -57,8 +58,19 @@ _TS = "%Y%m%dT%H%M%S"
 _NAME = re.compile(r"^(\d{8}T\d{6})_([A-Za-z0-9-]+)\.json$")
 
 
-class StoreError(Exception):
-    """The store cannot answer honestly."""
+class FilingStoreError(Exception):
+    """The filings store cannot answer honestly.
+
+    Named distinctly from desk.store.bars.StoreError on purpose. The two are
+    unrelated types that would otherwise share a name, so `except StoreError`
+    written against one import silently would not catch the other - and Stage
+    2 will eventually want to catch both a bars problem and a filings problem
+    in the same place.
+    """
+
+
+#: The old name, kept so existing callers keep working.
+StoreError = FilingStoreError
 
 
 def at_open(day: date) -> datetime:

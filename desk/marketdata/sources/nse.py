@@ -53,6 +53,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from desk.marketdata.corporate_actions import ActionType, CorporateAction
+from desk.marketdata.text import ABSENT, as_float, as_text, text_or_none
 
 BASE = "https://www.nseindia.com"
 API = f"{BASE}/api"
@@ -438,43 +439,13 @@ def _gunzip_bounded(raw: bytes, url: str) -> bytes:
     return bytes(out)
 
 
-#: NSE spells "there is nothing here" several ways, and "-" is by far the
-#: most common - 456 of RELIANCE's 3,345 announcements carry it in place of an
-#: attachment URL. Passed through verbatim it becomes a link that a downstream
-#: fetch will dutifully try to open.
-_ABSENT = {"", "-", "na", "null", "none"}
-
-
-def _s(v) -> str:
-    """A field as a string, whatever NSE actually sent.
-
-    `(v or "").strip()` is the obvious idiom and it is wrong: it only
-    substitutes "" for FALSY values, so an int, list or dict passes straight
-    through to .strip() and raises AttributeError. These endpoints are
-    undocumented, so a field changing type between API revisions is a
-    when-not-if - and one such field would otherwise cost the entire batch,
-    `undated` list included. _num() already had this right; the string
-    helpers did not.
-    """
-    if v is None:
-        return ""
-    return v.strip() if isinstance(v, str) else str(v).strip()
-
-
-def _text_or_none(v) -> str | None:
-    t = _s(v)
-    return None if t.lower() in _ABSENT else t
-
-
-def _num(v) -> float | None:
-    """A number, or None. NaN and Infinity are refused rather than passed on:
-    json.loads accepts both as literals, and a NaN promoter holding compares
-    false against every threshold downstream without ever looking wrong."""
-    try:
-        f = float(str(v).replace(",", "").strip())
-    except (TypeError, ValueError):
-        return None
-    return f if math.isfinite(f) else None
+# These moved to desk/marketdata/text.py so a second exchange source can use
+# them without importing another module's privates. Aliased rather than
+# renamed at every call site in one go.
+_ABSENT = ABSENT
+_s = as_text
+_text_or_none = text_or_none
+_num = as_float
 
 
 def parse_nse_date(s: str) -> date | None:
