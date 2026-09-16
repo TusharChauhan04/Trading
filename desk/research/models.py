@@ -181,9 +181,14 @@ class CorporateEvent:
 
     Deliberately NOT carrying `disclosed_at` as a required field: this is the
     one shape that is about the FUTURE rather than a past disclosure, and its
-    whole purpose is the `event_date`. It is the input to
-    `RegimeState.EventProximity`, the only regime dimension that can force
-    NO TRADE on its own.
+    whole purpose is the `event_date`.
+
+    It feeds `desk.research.events.EventCalendar`, which Stage 4 consults per
+    candidate - NOT `RegimeState.EventProximity`, which an earlier version of
+    this docstring claimed. That claim was wrong: EventProximity holds
+    market-wide scalars (RBI, budget, expiry) and has no per-symbol slot,
+    because regime is a property of the market. See events.py for the full
+    reasoning.
     """
     symbol: str
     event_date: date | None

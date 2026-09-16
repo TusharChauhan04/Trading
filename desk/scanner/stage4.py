@@ -36,13 +36,19 @@ from datetime import date
 
 import pandas as pd
 
-from desk.contracts.enums import Stance
+from desk.contracts.enums import RejectReason, Stance
 from desk.plan.models import PlanTrade
 from desk.risk.engine import Portfolio, RiskConfig, Sizing, size_position
 from desk.scanner.stage1 import Stage1Result
+from desk.research.events import EventCalendar
 from desk.scanner.stage2 import Stage2Result
 
 __all__ = ["Stage4Result", "Setup", "run_stage4", "propose_setup"]
+
+UNAVAILABLE_NO_CALENDAR = (
+    "Event proximity not checked - no event calendar supplied, so a name "
+    "reporting results inside the holding window was not screened out.",
+)
 
 UNAVAILABLE = (
     "Sector caps are not enforced per name - bhavcopy carries no sector "
@@ -186,12 +192,25 @@ def run_stage4(
     portfolio: Portfolio | None = None,
     max_trades: int = 3,
     candidates: int = 20,
+    events: "EventCalendar | None" = None,
+    holding_days: int = 5,
     stop_atrs: float = 2.0,
     target_r: float = 2.5,
     market_risk_off: bool = False,
     today: date | None = None,
 ) -> Stage4Result:
     """Size the top-ranked candidates and keep the ones that pass.
+
+    `events` is the per-symbol event calendar. It is passed here rather than
+    carried on `RegimeState` deliberately: regime is a property of the MARKET,
+    and a per-symbol value inside a regime vector would make "the regime" mean
+    something different for every candidate. Market-wide event proximity stays
+    in `RegimeState.EventProximity`; "does THIS name report on Thursday" is a
+    Stage 4 concern, the same way `market_risk_off` and `atr_pct` sit side by
+    side on one `size_position` call.
+
+    Omitting it is allowed and is declared in `unavailable` - a scan that did
+    not check for earnings must not read like one that checked and found none.
 
     `candidates` (default 20) bounds how far down the ranking Stage 4 will
     look; `max_trades` (default 3) bounds how many approvals it will return.
@@ -207,6 +226,20 @@ def run_stage4(
     """
     pf = portfolio or Portfolio()
     result = Stage4Result(as_of=stage2.as_of)
+    if events is None:
+        result.unavailable.extend(UNAVAILABLE_NO_CALENDAR)
+    elif not stage2.ranked.empty:
+        # The gate only sees names NSE has published a forward event for -
+        # 41 of the market on a typical day. Saying "the event gate ran" while
+        # it could see 3 of 20 candidates would be the same lie as reporting a
+        # skipped check as a passed one.
+        seen, asked = events.coverage(stage2.ranked.head(candidates).index)
+        if seen < asked:
+            result.unavailable.append(
+                f"Event proximity known for only {seen} of {asked} candidates "
+                f"- NSE's forward calendar covers a few weeks, so a name with "
+                f"no entry was NOT cleared, it was not checked."
+            )
 
     if stage2.ranked.empty:
         return result
@@ -226,6 +259,23 @@ def run_stage4(
             result.skipped["no usable ATR or price"] = \
                 result.skipped.get("no usable ATR or price", 0) + 1
             continue
+
+        # THE EVENT GATE. A company announcing results inside the holding
+        # window turns the trade into a coin flip on something the chart
+        # cannot see, however good the setup is. Checked BEFORE sizing,
+        # because there is no quantity that makes this acceptable.
+        if events is not None:
+            win = events.window(symbol, as_of=stage2.as_of)
+            if win.blocks(holding_days):
+                result.rejected.append(Sizing(
+                    approved=False, symbol=symbol,
+                    entry=setup.entry, stop=setup.stop, target=setup.target,
+                    reasons=[RejectReason.EVENT_IN_WINDOW],
+                    notes=[f"{win.event.purpose or 'scheduled event'} in "
+                           f"{win.days_until}d (holding window {holding_days}d)"],
+                ))
+                result.considered += 1
+                continue
 
         result.considered += 1
         sizing = size_position(

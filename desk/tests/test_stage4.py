@@ -301,3 +301,138 @@ def test_a_crisis_ranking_of_nothing_produces_no_trade():
     r = run_stage4(s2, s1, cfg=RiskConfig(capital=10_000_000), today=AS_OF)
     assert r.is_no_trade
     assert r.considered == 0
+
+
+# ===========================================================================
+# R4 - the event gate
+# ===========================================================================
+
+def _calendar(rows):
+    from desk.research.events import EventCalendar
+    from desk.research.models import CorporateEvent
+    return EventCalendar.from_events(
+        [CorporateEvent(symbol=s, event_date=d, purpose=p)
+         for s, d, p in rows])
+
+
+def test_a_name_reporting_inside_the_holding_window_is_refused():
+    """The whole point of R4. A company announcing results inside the holding
+    window turns the trade into a coin flip on something the chart cannot
+    see - however good the setup is."""
+    from desk.contracts.enums import RejectReason
+
+    s1, s2 = _pipeline({"AAA.NS": _candidate(9)})
+    cal = _calendar([("AAA", date(2026, 9, 13), "Financial Results")])
+    r = run_stage4(s2, s1, cfg=RiskConfig(capital=10_000_000), today=AS_OF,
+                   events=cal, holding_days=5)
+    assert r.approved == []
+    assert r.rejected[0].reasons == [RejectReason.EVENT_IN_WINDOW]
+    assert "Financial Results" in r.rejected[0].notes[0]
+    assert "2d" in r.rejected[0].notes[0]      # 11 Sep -> 13 Sep
+
+
+def test_an_event_beyond_the_holding_window_does_not_block():
+    s1, s2 = _pipeline({"AAA.NS": _candidate(9)})
+    cal = _calendar([("AAA", date(2026, 10, 30), "Financial Results")])
+    r = run_stage4(s2, s1, cfg=RiskConfig(capital=10_000_000), today=AS_OF,
+                   events=cal, holding_days=5)
+    assert [t.symbol for t in r.approved] == ["AAA.NS"]
+
+
+def test_the_gate_runs_before_sizing():
+    """There is no quantity that makes holding through an earnings print
+    acceptable, so the check belongs ahead of the arithmetic."""
+    s1, s2 = _pipeline({"AAA.NS": _candidate(9)})
+    cal = _calendar([("AAA", date(2026, 9, 12), "Financial Results")])
+    r = run_stage4(s2, s1, cfg=RiskConfig(capital=10_000_000), today=AS_OF,
+                   events=cal, holding_days=5)
+    rejected = r.rejected[0]
+    assert rejected.qty == 0
+    assert rejected.capital_at_risk == 0.0
+
+
+def test_a_non_price_moving_event_does_not_block():
+    """NSE's calendar carries administrative entries too. Blocking on every
+    one of them makes the gate fire constantly and get switched off."""
+    s1, s2 = _pipeline({"AAA.NS": _candidate(9)})
+    cal = _calendar([("AAA", date(2026, 9, 12), "Change of Registered Office")])
+    r = run_stage4(s2, s1, cfg=RiskConfig(capital=10_000_000), today=AS_OF,
+                   events=cal, holding_days=5)
+    assert [t.symbol for t in r.approved] == ["AAA.NS"]
+
+
+def test_omitting_the_calendar_is_declared_not_silently_skipped():
+    """A scan that did not check for earnings must not read like one that
+    checked and found none."""
+    s1, s2 = _pipeline({"AAA.NS": _candidate(9)})
+    r = run_stage4(s2, s1, cfg=RiskConfig(capital=10_000_000), today=AS_OF)
+    assert any("Event proximity not checked" in u for u in r.unavailable)
+
+
+def test_partial_calendar_coverage_is_declared():
+    """NSE's forward calendar covers a few weeks - 41 names on a typical day.
+    Reporting "the event gate ran" while it could see 1 of 3 candidates is the
+    same lie as reporting a skipped check as a passed one."""
+    rows = {f"SYM{i}.NS": _candidate(i) for i in range(3)}
+    s1, s2 = _pipeline(rows)
+    cal = _calendar([("SYM2", date(2026, 11, 30), "Financial Results")])
+    r = run_stage4(s2, s1, cfg=RiskConfig(capital=100_000_000,
+                                          max_sector_pct=100.0,
+                                          max_open_risk_pct=20.0),
+                   today=AS_OF, events=cal, holding_days=5)
+    note = next(u for u in r.unavailable if "Event proximity known" in u)
+    assert "1 of 3" in note
+    assert "was NOT cleared, it was not checked" in note
+
+
+def test_a_symbol_absent_from_the_calendar_does_not_block():
+    """Deliberate, and the opposite of this project's usual instinct. The
+    calendar covers a few weeks market-wide, so 'no entry' is the normal state
+    for almost every name on almost every day - blocking on unknown would
+    block everything, and a gate that always fires gets switched off. The
+    honest handling is to report coverage, not to treat absence as
+    information."""
+    from desk.research.events import EventCalendar
+
+    empty = EventCalendar.from_events([])
+    w = empty.window("AAA", as_of=AS_OF)
+    assert w.known is False and w.days_until is None
+    assert w.blocks(5) is False
+
+
+def test_an_event_today_blocks():
+    s1, s2 = _pipeline({"AAA.NS": _candidate(9)})
+    cal = _calendar([("AAA", AS_OF, "Financial Results")])
+    r = run_stage4(s2, s1, cfg=RiskConfig(capital=10_000_000), today=AS_OF,
+                   events=cal, holding_days=5)
+    assert r.approved == []
+
+
+def test_a_past_event_is_ignored():
+    s1, s2 = _pipeline({"AAA.NS": _candidate(9)})
+    cal = _calendar([("AAA", date(2026, 9, 1), "Financial Results")])
+    r = run_stage4(s2, s1, cfg=RiskConfig(capital=10_000_000), today=AS_OF,
+                   events=cal, holding_days=5)
+    assert [t.symbol for t in r.approved] == ["AAA.NS"]
+
+
+def test_the_event_gate_works_against_the_real_nse_calendar():
+    """Pinned against the captured market-wide calendar rather than a
+    constructed one."""
+    import json as _json
+    from pathlib import Path as _Path
+
+    from desk.research.events import EventCalendar
+    from desk.research.sources.nse import parse_event_calendar
+
+    raw = _json.loads((_Path(__file__).parent / "fixtures" /
+                       "nse_eventcalendar.json").read_text(encoding="utf-8"))
+    rows = raw if isinstance(raw, list) else raw.get("data", [])
+    cal = EventCalendar.from_events(parse_event_calendar(rows))
+    assert len(cal.symbols) == 41
+
+    blocked = [s for s in cal.symbols
+               if cal.window(s, as_of=date(2026, 9, 16)).blocks(5)]
+    assert len(blocked) == 30
+    assert "RELIANCE" not in cal.symbols
+    assert cal.window("RELIANCE", as_of=date(2026, 9, 16)).known is False

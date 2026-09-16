@@ -134,3 +134,4 @@ class RejectReason(str, Enum):
     SLIPPAGE_TOO_HIGH = "slippage_too_high"
     EXTREME_VOLATILITY = "extreme_volatility"
     MARKET_RISK_OFF = "market_risk_off"
+    EVENT_IN_WINDOW = "event_in_window"   # results/corporate action pending
