@@ -249,6 +249,11 @@ def main(argv: list[str] | None = None) -> int:
                    help="skip the financial documents - much faster, but the "
                         "filings are then records that a result was announced "
                         "rather than the numbers themselves")
+    r.add_argument("--since", type=date.fromisoformat, metavar="YYYY-MM-DD",
+                   help="ignore records disclosed before this date. Saves no "
+                        "requests (these endpoints return whole history) but "
+                        "bounds the XBRL documents fetched and the disk "
+                        "written - both dominated by old records")
     r.add_argument("--force", action="store_true",
                    help="refetch symbols already on file (default is to skip "
                         "them, so an interrupted run resumes)")
@@ -281,7 +286,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             return refresh_research(session, args.symbols, args.out_dir,
                                     kinds=kinds, with_xbrl=not args.no_xbrl,
-                                    force=args.force)
+                                    since=args.since, force=args.force)
         return refresh_actions(session, args.symbols, args.out_dir)
     except CalendarError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

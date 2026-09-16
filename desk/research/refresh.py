@@ -15,7 +15,7 @@ cookie-bearing client is genuinely cross-cutting and both domains need it.
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from desk.marketdata.sources.nse import NseSession, RateLimited, SourceError
@@ -42,6 +42,7 @@ RESEARCH_KINDS = ("filings", "announcements", "boardmeetings",
 def refresh_research(session: NseSession, symbols: list[str], out_dir: Path, *,
                      kinds: tuple[str, ...] = RESEARCH_KINDS,
                      with_xbrl: bool = True,
+                     since: date | None = None,
                      force: bool = False) -> int:
     """Fetch exchange-disclosed research for one or more symbols.
 
@@ -58,6 +59,13 @@ def refresh_research(session: NseSession, symbols: list[str], out_dir: Path, *,
     research data. The marker therefore records WHICH kinds were fetched, and
     a symbol is skipped only when every kind being asked for is already
     there.
+
+    `since` drops records disclosed before that date. It does NOT save
+    requests - these endpoints return a symbol's whole history and take no
+    date parameter - but it bounds the two things that actually hurt: the
+    XBRL documents fetched (53 per symbol for RELIANCE, one request each,
+    and the dominant cost of a full backfill) and the disk written (3,345
+    announcements for RELIANCE, most of them a decade old).
 
     Prints a progress counter because a multi-hour run with no output is
     indistinguishable from a hung one.
@@ -99,7 +107,8 @@ def refresh_research(session: NseSession, symbols: list[str], out_dir: Path, *,
         try:
             for kind in todo:
                 n, und = _fetch_one_kind(session, base, kind, out_dir,
-                                         filings_store, with_xbrl=with_xbrl)
+                                         filings_store, with_xbrl=with_xbrl,
+                                         since=since)
                 counts[kind] = n
                 undated_here.extend(und)
         except RateLimited as exc:
@@ -154,10 +163,19 @@ def refresh_research(session: NseSession, symbols: list[str], out_dir: Path, *,
 
 
 def _fetch_one_kind(session: NseSession, base: str, kind: str, out_dir: Path,
-                    filings_store: "FilingStore", *, with_xbrl: bool):
-    """One endpoint for one symbol. Returns (records written, undated)."""
+                    filings_store: "FilingStore", *, with_xbrl: bool,
+                    since: date | None = None):
+    """One endpoint for one symbol. Returns (records written, undated).
+
+    `undated` is NEVER filtered by `since`. A record with no timestamp cannot
+    be placed in time, so excluding it by date would be inventing the very
+    fact it is missing - and these are the records that warn a field has been
+    renamed.
+    """
     if kind == "filings":
         filings, undated = parse_results(session.fetch_results(base), base)
+        if since is not None:
+            filings = [f for f in filings if f.disclosed_at.date() >= since]
         for f in filings:
             periods = ()
             if with_xbrl and f.xbrl_url:
@@ -188,12 +206,15 @@ def _fetch_one_kind(session: NseSession, base: str, kind: str, out_dir: Path,
     }[kind]
 
     records, undated = parse(fetch(base), base)
+    if since is not None:
+        records = [r for r in records if r.disclosed_at.date() >= since]
     dest = out_dir / kind / f"{base}.json"
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".json.tmp")
     tmp.write_text(json.dumps({
         "symbol": f"{base}.NS",
         "fetched_at": datetime.now().isoformat(timespec="seconds"),
+        "since": since.isoformat() if since else None,
         "records": [_research_to_json(r) for r in records],
         # Written into the file as well as printed. Printed-only means lost
         # the moment the terminal scrolls, and this is the list that says

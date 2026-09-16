@@ -321,3 +321,51 @@ def test_an_unreadable_stored_filing_is_refetched_rather_than_assumed_good(
     s = StubSession()
     refresh_research(s, ["RELIANCE"], tmp_path, kinds=("filings",), force=True)
     assert sum(1 for k, _ in s.calls if k == "xbrl") > 10
+
+
+# ===========================================================================
+# --since
+# ===========================================================================
+
+def test_since_bounds_the_xbrl_documents_fetched(tmp_path):
+    """The point of --since. It saves no REQUESTS - these endpoints return a
+    symbol's whole history and take no date parameter - but XBRL is one
+    request per filing and RELIANCE has 53 of them, most a decade old."""
+    unbounded = StubSession()
+    refresh_research(unbounded, ["RELIANCE"], tmp_path / "a", kinds=("filings",))
+    bounded = StubSession()
+    refresh_research(bounded, ["RELIANCE"], tmp_path / "b", kinds=("filings",),
+                     since=date(2024, 1, 1))
+
+    n_all = sum(1 for k, _ in unbounded.calls if k == "xbrl")
+    n_since = sum(1 for k, _ in bounded.calls if k == "xbrl")
+    assert n_since < n_all, f"--since fetched {n_since} of {n_all}"
+    assert n_since > 0, "--since excluded everything"
+
+
+def test_since_bounds_what_is_written_to_disk(tmp_path):
+    refresh_research(StubSession(), ["RELIANCE"], tmp_path / "a",
+                     kinds=("announcements",), with_xbrl=False)
+    refresh_research(StubSession(), ["RELIANCE"], tmp_path / "b",
+                     kinds=("announcements",), with_xbrl=False,
+                     since=date(2026, 1, 1))
+    a = json.loads((tmp_path / "a" / "announcements" / "RELIANCE.json")
+                   .read_text(encoding="utf-8"))
+    b = json.loads((tmp_path / "b" / "announcements" / "RELIANCE.json")
+                   .read_text(encoding="utf-8"))
+    assert len(a["records"]) == 3345
+    assert 0 < len(b["records"]) < len(a["records"])
+    assert b["since"] == "2026-01-01"
+    assert all(r["disclosed_at"] >= "2026-01-01" for r in b["records"])
+
+
+def test_since_never_filters_undated_records(tmp_path):
+    """A record with no timestamp cannot be placed in time, so excluding it by
+    date would be inventing the very fact it is missing - and these are the
+    records that warn a field has been renamed."""
+    refresh_research(StubSession(), ["RELIANCE"], tmp_path,
+                     kinds=("filings",), with_xbrl=False,
+                     since=date(2026, 1, 1))
+    marker = json.loads((tmp_path / "_done" / "RELIANCE.json")
+                        .read_text(encoding="utf-8"))
+    assert marker["undated"] == 8, "undated records were filtered by --since"
