@@ -501,3 +501,115 @@ def test_mixed_case_months_parse_without_the_removed_retry():
     assert parse_nse_datetime("16-JUL-2026 19:24:44") == datetime(2026, 7, 16, 19, 24, 44)
     assert parse_nse_datetime("16-jul-2026") == datetime(2026, 7, 16)
     assert parse_nse_datetime("16-JuL-2026") == datetime(2026, 7, 16)
+
+
+# ===========================================================================
+# REGRESSION: security-review findings
+# ===========================================================================
+
+@pytest.mark.parametrize("bad_field,value", [
+    ("broadCastDate", 12345), ("xbrl", ["a"]), ("companyName", {"x": 1}),
+    ("relatingTo", True), ("isin", 3.14), ("audited", 7),
+])
+def test_a_non_string_field_does_not_destroy_the_whole_batch(bad_field, value):
+    """REGRESSION: `(v or "").strip()` substitutes "" only for FALSY values, so
+    a truthy non-string - an int, a list, a dict - reached .strip() and raised
+    AttributeError. There is no per-row try/except, so ONE such field anywhere
+    in a 3,345-row payload discarded the entire batch including the `undated`
+    list this module's whole contract rests on. These endpoints are
+    undocumented; a field changing type between revisions is when, not if."""
+    good = {"broadCastDate": "16-Jan-2025 20:20:21", "period": "Quarterly"}
+    filings, undated = parse_results([dict(good, **{bad_field: value}), good], "X")
+    assert len(filings) + len(undated) == 2
+
+
+def test_every_parser_survives_a_hostile_row():
+    ugly = {k: [{"nested": 1}] for k in
+            ("an_dt", "desc", "attchmntText", "attchmntFile", "bm_purpose",
+             "bm_desc", "acqName", "acqMode", "anex", "symbol", "purpose",
+             "company", "companyName", "xbrl", "isin")}
+    ok = {"an_dt": "16-Jan-2025 20:20:21", "broadCastDate": "16-Jan-2025 20:20:21",
+          "bm_timestamp": "16-Jan-2025 20:20:21",
+          "broadcastDate": "16-Jan-2025 20:20:21", "date": "16-Jan-2025 20:20:21",
+          "period": "Quarterly"}
+    for parse in (parse_results, parse_announcements, parse_board_meetings,
+                  parse_shareholding, parse_insider_deals):
+        recs, und = parse([dict(ok, **ugly), ok], "X")      # must not raise
+        assert len(recs) + len(und) == 2, parse.__name__
+    parse_event_calendar([dict(ugly, date="17-Sep-2026"), {"symbol": "A",
+                          "date": "17-Sep-2026"}])          # must not raise
+
+
+def test_a_nan_never_becomes_a_shareholding_percentage():
+    """json.loads accepts bare NaN/Infinity even though neither is valid JSON.
+    A NaN promoter holding compares false against every threshold downstream
+    while looking like a real number on a dashboard."""
+    from desk.marketdata.sources.nse import _num
+    for bad in (float("nan"), float("inf"), float("-inf"), "NaN", "Infinity"):
+        assert _num(bad) is None, bad
+    assert _num("0") == 0.0 and _num(0) == 0.0        # a real 0% must survive
+    assert _num("62.4") == 62.4 and _num("1,234.5") == 1234.5
+
+
+def test_get_json_refuses_non_finite_constants_rather_than_passing_them_on():
+    from desk.marketdata.sources.nse import _reject_constant
+    with pytest.raises(SourceError, match="non-finite JSON constant"):
+        json.loads('{"promoter_pct": NaN}', parse_constant=_reject_constant)
+
+
+def test_only_a_real_nse_host_passes_the_host_check():
+    """Suffix matching is not a hostname check. Every string below starts with
+    the archive prefix or contains the domain, and none of them IS the domain."""
+    from desk.marketdata.sources.nse import _is_nse_host
+    assert _is_nse_host("nseindia.com")
+    assert _is_nse_host("nsearchives.nseindia.com")
+    assert _is_nse_host("www.nseindia.com")
+    assert _is_nse_host("NSEArchives.NSEIndia.Com")          # case
+    assert not _is_nse_host("nsearchives.nseindia.com.evil.example")
+    assert not _is_nse_host("evil-nseindia.com")
+    assert not _is_nse_host("nseindia.com.evil.example")
+    assert not _is_nse_host("evil.example")
+
+
+def test_a_redirect_off_nse_is_refused_even_though_the_url_we_asked_for_was_fine():
+    """REGRESSION: urllib follows redirects transparently and cross-host, so
+    validating the URL we REQUEST constrains nothing about where we end up.
+    Checking the URL is necessary and not sufficient; the destination is
+    re-checked after the fact."""
+    from desk.marketdata.sources.nse import NseSession
+
+    class FakeResp:
+        headers = {}
+        def __init__(self, final): self._final = final
+        def geturl(self): return self._final
+        def read(self, n=-1): return b"payload"
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    s = NseSession()
+    s._warmed = True
+    s._opener = type("O", (), {"open": lambda self, req, timeout=None:
+                               FakeResp("https://evil.example/stolen")})()
+    with pytest.raises(SourceError, match="redirected off NSE"):
+        s._fetch_raw("https://nsearchives.nseindia.com/corporate/xbrl/x.xml")
+
+    # A redirect that stays inside NSE is fine - they do this legitimately.
+    s._opener = type("O", (), {"open": lambda self, req, timeout=None:
+                               FakeResp("https://www.nseindia.com/ok")})()
+    assert s._fetch_raw("https://nsearchives.nseindia.com/x") == b"payload"
+
+
+def test_a_gzip_bomb_is_refused_rather_than_decompressed_into_memory():
+    """Measured amplification is ~1029x: 200MB of compressible data gzips to
+    ~204KB. gzip.decompress() does it in one unbounded allocation, so a
+    few-MB response that passes the wire-size cap still detonates."""
+    import gzip as _gzip
+    from desk.marketdata.sources.nse import MAX_DECOMPRESSED_BYTES, _gunzip_bounded
+
+    bomb = _gzip.compress(b"\0" * (MAX_DECOMPRESSED_BYTES + 1024))
+    assert len(bomb) < 1_000_000, "the bomb should be small on the wire"
+    with pytest.raises(SourceError, match="decompressed past"):
+        _gunzip_bounded(bomb, "https://nsearchives.nseindia.com/x")
+
+    # A normal body still round-trips.
+    assert _gunzip_bounded(_gzip.compress(b"hello"), "u") == b"hello"

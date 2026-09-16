@@ -34,9 +34,11 @@ fail to notice them.
 from __future__ import annotations
 
 import gzip
+import zlib
 import http.cookiejar
 import io
 import json
+import math
 import re
 import urllib.error
 import urllib.parse
@@ -65,6 +67,17 @@ API = f"{BASE}/api"
 ARCHIVES = "https://nsearchives.nseindia.com"     # bhavcopy and other static files
 ARCHIVES_HOST = "nsearchives.nseindia.com"
 
+#: Hard ceiling on one response. The largest thing this client legitimately
+#: fetches is a full bhavcopy - about 395KB raw, ~140KB gzipped - so 64MB is
+#: three orders of magnitude of headroom and still bounds the damage.
+MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+
+#: And on what a gzip body may EXPAND to. Measured: 200MB of compressible
+#: data gzips to ~204KB, an amplification of about 1029x, so a few-MB
+#: response that passes the wire-size cap can still detonate into gigabytes.
+#: gzip.decompress() does it in one unbounded allocation; this does not.
+MAX_DECOMPRESSED_BYTES = 256 * 1024 * 1024
+
 #: Real NSE tickers contain `&` and `-`: M&M, BAJAJ-AUTO, J&KBANK, NAM-INDIA,
 #: IL&FSENGG and 17 others in a single day's bhavcopy. An `.isalnum()` check
 #: looks conservative and is simply WRONG - it refused a Nifty 50 constituent.
@@ -76,6 +89,9 @@ _SYMBOL_RE = re.compile(r"[A-Z0-9&-]{1,30}")
 # reads server-local time - fine on a laptop in India, silently off by 5:30h
 # the moment this runs on a UTC-clock VPS. Same reasoning as desk/api/main.py.
 IST = ZoneInfo("Asia/Kolkata")
+
+#: 16 + MAX_WBITS: gzip container rather than bare deflate.
+_GZIP_WBITS = 16 + zlib.MAX_WBITS
 
 BROWSER_HEADERS = {
     "User-Agent": (
@@ -142,9 +158,28 @@ class NseSession:
         req = urllib.request.Request(url, headers=BROWSER_HEADERS)
         try:
             with self._opener.open(req, timeout=self.timeout) as resp:
-                raw = resp.read()
+                # A redirect is followed transparently by urllib's default
+                # handler, ACROSS HOSTS, and no amount of checking the URL we
+                # asked for constrains where we ended up. Verified: a 302 to a
+                # different host is followed and its body returned. So the
+                # destination is re-checked here, after the fact.
+                final = urllib.parse.urlsplit(resp.geturl())
+                if final.hostname and not _is_nse_host(final.hostname):
+                    raise SourceError(
+                        f"request for {url[:60]!r} was redirected off NSE to "
+                        f"{final.hostname!r} - refusing the response"
+                    )
+                # resp.read() with no argument reads to EOF, however large. Cap it
+                # and read one byte past the limit so "exactly at the cap" is
+                # distinguishable from "truncated".
+                raw = resp.read(MAX_RESPONSE_BYTES + 1)
+                if len(raw) > MAX_RESPONSE_BYTES:
+                    raise SourceError(
+                        f"{url[:60]!r} returned more than "
+                        f"{MAX_RESPONSE_BYTES // 1_000_000}MB - refusing to buffer it"
+                    )
                 if resp.headers.get("Content-Encoding") == "gzip":
-                    raw = gzip.decompress(raw)
+                    raw = _gunzip_bounded(raw, url)
                 return raw
         except urllib.error.HTTPError as exc:
             raise SourceError(f"{url} returned HTTP {exc.code}") from exc
@@ -162,7 +197,16 @@ class NseSession:
         url = f"{API}/{path.lstrip('/')}"
         raw = self._fetch_raw(url)
         try:
-            return json.loads(raw)
+            # parse_constant rejects NaN/Infinity/-Infinity. json.loads
+            # accepts all three as bare literals even though they are not
+            # valid JSON, and a NaN promoter holding compares false against
+            # every threshold downstream while looking like a real number.
+            return json.loads(raw, parse_constant=_reject_constant)
+        except RecursionError as exc:
+            # Deeply nested JSON raises this, and it is NOT a JSONDecodeError -
+            # so it escaped the handler below and killed the caller instead of
+            # producing the SourceError every other failure here produces.
+            raise SourceError(f"{url} returned pathologically nested JSON") from exc
         except json.JSONDecodeError as exc:
             # Usually an anti-bot HTML interstitial rather than malformed JSON.
             raise SourceError(
@@ -285,9 +329,39 @@ class Unparsed:
         return f"{self.symbol} {self.ex_date} {self.subject!r} - {self.reason}"
 
 
+def _reject_constant(name: str):
+    raise SourceError(f"non-finite JSON constant {name!r} in NSE response")
+
+
+def _is_nse_host(host: str) -> bool:
+    """Exactly nseindia.com or a subdomain of it - never a suffix match.
+    `nsearchives.nseindia.com.evil.example` must not pass."""
+    h = host.lower().rstrip(".")
+    return h == "nseindia.com" or h.endswith(".nseindia.com")
+
+
+def _gunzip_bounded(raw: bytes, url: str) -> bytes:
+    """Decompress incrementally, refusing anything past the output cap."""
+    out = bytearray()
+    d = zlib.decompressobj(_GZIP_WBITS)
+    chunk = d.decompress(raw, MAX_DECOMPRESSED_BYTES + 1 - len(out))
+    while chunk:
+        out.extend(chunk)
+        if len(out) > MAX_DECOMPRESSED_BYTES:
+            raise SourceError(
+                f"{url[:60]!r} decompressed past "
+                f"{MAX_DECOMPRESSED_BYTES // 1_000_000}MB - refusing it"
+            )
+        if not d.unconsumed_tail:
+            break
+        chunk = d.decompress(d.unconsumed_tail,
+                             MAX_DECOMPRESSED_BYTES + 1 - len(out))
+    return bytes(out)
+
+
 def parse_nse_date(s: str) -> date | None:
     """NSE dates are 'DD-Mon-YYYY', sometimes padded, sometimes '-' for none."""
-    s = (s or "").strip()
+    s = _s(s)
     if not s or s == "-":
         return None
     for fmt in ("%d-%b-%Y", "%d-%B-%Y", "%Y-%m-%d"):
@@ -729,7 +803,7 @@ def parse_nse_datetime(s: str | None) -> datetime | None:
     values in the fixtures, it was reached 7,274 times and changed the outcome
     zero times. Removed rather than left as reassuring dead code.
     """
-    raw = (s or "").strip()
+    raw = _s(s)
     if not raw or raw in ("-", "NA", "null"):
         return None
     for fmt in _DT_FORMATS:
@@ -762,16 +836,36 @@ def _disclosed(row: dict, *fields: str) -> datetime | None:
 _ABSENT = {"", "-", "na", "null", "none"}
 
 
+def _s(v) -> str:
+    """A field as a string, whatever NSE actually sent.
+
+    `(v or "").strip()` is the obvious idiom and it is wrong: it only
+    substitutes "" for FALSY values, so an int, list or dict passes straight
+    through to .strip() and raises AttributeError. These endpoints are
+    undocumented, so a field changing type between API revisions is a
+    when-not-if - and one such field would otherwise cost the entire batch,
+    `undated` list included. _num() already had this right; the string
+    helpers did not.
+    """
+    if v is None:
+        return ""
+    return v.strip() if isinstance(v, str) else str(v).strip()
+
+
 def _text_or_none(v) -> str | None:
-    t = (v or "").strip()
+    t = _s(v)
     return None if t.lower() in _ABSENT else t
 
 
 def _num(v) -> float | None:
+    """A number, or None. NaN and Infinity are refused rather than passed on:
+    json.loads accepts both as literals, and a NaN promoter holding compares
+    false against every threshold downstream without ever looking wrong."""
     try:
-        return float(str(v).replace(",", "").strip())
+        f = float(str(v).replace(",", "").strip())
     except (TypeError, ValueError):
         return None
+    return f if math.isfinite(f) else None
 
 
 def parse_results(payload: list[dict], symbol: str
@@ -805,16 +899,16 @@ def parse_results(payload: list[dict], symbol: str
             audited=_tri_state(row.get("audited"), "Audited", "Un-Audited"),
             consolidated=_tri_state(row.get("consolidated"),
                                     "Consolidated", "Non-Consolidated"),
-            company_name=(row.get("companyName") or "").strip(),
-            relating_to=(row.get("relatingTo") or "").strip(),
+            company_name=_s(row.get("companyName")),
+            relating_to=_s(row.get("relatingTo")),
             xbrl_url=xbrl,
-            isin=(row.get("isin") or "").strip(),
+            isin=_s(row.get("isin")),
         ))
     return out, undated
 
 
 def _result_period(v) -> ResultPeriod:
-    t = (v or "").strip().lower()
+    t = _s(v).lower()
     if t.startswith("quarter"):
         return ResultPeriod.QUARTERLY
     if "half" in t:
@@ -827,7 +921,7 @@ def _result_period(v) -> ResultPeriod:
 def _tri_state(v, yes: str, no: str) -> bool | None:
     """True / False / None. None means NSE did not say, which is NOT the same
     as saying no - the same third-state discipline as Sizing.checks_skipped."""
-    t = (v or "").strip().lower()
+    t = _s(v).lower()
     if t == yes.lower():
         return True
     if t == no.lower():
@@ -850,8 +944,8 @@ def parse_announcements(payload: list[dict], symbol: str
         out.append(Announcement(
             symbol=symbol,
             disclosed_at=dt,
-            category=(row.get("desc") or "").strip(),
-            text=(row.get("attchmntText") or "").strip(),
+            category=_s(row.get("desc")),
+            text=_s(row.get("attchmntText")),
             attachment_url=att,
         ))
     return out, undated
@@ -872,8 +966,8 @@ def parse_board_meetings(payload: list[dict], symbol: str
             symbol=symbol,
             disclosed_at=dt,
             meeting_date=parse_nse_date(row.get("bm_date")),
-            purpose=(row.get("bm_purpose") or "").strip(),
-            description=(row.get("bm_desc") or "").strip(),
+            purpose=_s(row.get("bm_purpose")),
+            description=_s(row.get("bm_desc")),
         ))
     return out, undated
 
@@ -921,13 +1015,13 @@ def parse_insider_deals(payload: list[dict], symbol: str
         out.append(InsiderDeal(
             symbol=symbol,
             disclosed_at=dt,
-            acquirer=(row.get("acqName") or "").strip(),
-            mode=(row.get("acqMode") or "").strip(),
+            acquirer=_s(row.get("acqName")),
+            mode=_s(row.get("acqMode")),
             shares_after=_num(row.get("afterAcqSharesNo")),
             pct_after=_num(row.get("afterAcqSharesPer")),
             from_date=parse_nse_date(row.get("acqfromDt")),
             to_date=parse_nse_date(row.get("acqtoDt")),
-            regulation=(row.get("anex") or "").strip(),
+            regulation=_s(row.get("anex")),
         ))
     return out, undated
 
@@ -941,7 +1035,7 @@ def parse_event_calendar(payload: list[dict]) -> list[CorporateEvent]:
     for row in payload:
         if not isinstance(row, dict):
             continue
-        sym = (row.get("symbol") or "").strip()
+        sym = _s(row.get("symbol"))
         if not sym:
             continue
         event_date = parse_nse_date(row.get("date"))
@@ -954,8 +1048,8 @@ def parse_event_calendar(payload: list[dict]) -> list[CorporateEvent]:
         out.append(CorporateEvent(
             symbol=sym,
             event_date=event_date,
-            purpose=(row.get("purpose") or "").strip(),
-            company=(row.get("company") or "").strip(),
-            description=(row.get("bm_desc") or "").strip(),
+            purpose=_s(row.get("purpose")),
+            company=_s(row.get("company")),
+            description=_s(row.get("bm_desc")),
         ))
     return out
