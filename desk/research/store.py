@@ -169,6 +169,27 @@ class FilingStore:
                   "S" if filing.consolidated is False else "U")
         return f"{filing.disclosed_at.strftime(_TS)}_{period}{nature}.json"
 
+    def has_numbers_for(self, filing: Filing) -> bool:
+        """Is this exact filing already stored WITH parsed periods?
+
+        Lets an incremental refresh skip the XBRL document it already has. A
+        historical filing's numbers never change, and refetching all of them
+        every run is the difference between a ~92,000-request backfill and an
+        incremental run that costs one document per genuinely new filing.
+
+        Deliberately checks for PERIODS, not merely for the file: a filing
+        stored by a --no-xbrl run has no numbers, and a later full run must
+        still fetch them.
+        """
+        path = self._dir(filing.symbol) / self._filename(filing)
+        if not path.is_file():
+            return False
+        try:
+            blob = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False           # unreadable: refetch rather than assume
+        return bool(blob.get("periods"))
+
     # --------------------------------------------------------------- read --
 
     def for_symbol(self, symbol: str, *, as_of: datetime,

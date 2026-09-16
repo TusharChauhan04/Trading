@@ -126,7 +126,7 @@ def test_a_second_run_skips_what_is_already_fetched(tmp_path, capsys):
                           with_xbrl=False)
     assert rc == 0
     assert second.calls == [], "a resumed run refetched an already-done symbol"
-    assert "already fetched and skipped" in capsys.readouterr().out
+    assert "already had every requested kind" in capsys.readouterr().out
     assert n > 0
 
 
@@ -229,3 +229,95 @@ def test_kinds_limits_what_is_fetched(tmp_path):
                      with_xbrl=False)
     assert {k for k, _ in s.calls} == {"insider", "shareholding"}
     assert not (tmp_path / "announcements").exists()
+
+
+def test_a_partial_kinds_run_does_not_block_a_later_full_run(tmp_path):
+    """REGRESSION, and it was silent. The resume marker was keyed on the
+    SYMBOL, so `--kinds insider` marked it done and a later full run skipped
+    it entirely - fetching no filings and no announcements, while the operator
+    believed they had complete research data. Resume is now per KIND."""
+    refresh_research(StubSession(), ["IRCTC"], tmp_path, kinds=("insider",),
+                     with_xbrl=False)
+
+    s = StubSession()
+    refresh_research(s, ["IRCTC"], tmp_path, with_xbrl=False)
+
+    fetched = {k for k, _ in s.calls}
+    assert "results" in fetched, "the full run never fetched filings"
+    assert "announcements" in fetched
+    assert "insider" not in fetched, "already-fetched work was refetched"
+    assert (tmp_path / "filings" / "IRCTC").is_dir()
+    assert (tmp_path / "announcements" / "IRCTC.json").is_file()
+
+
+def test_a_symbol_is_skipped_only_when_every_requested_kind_is_present(
+        tmp_path, capsys):
+    refresh_research(StubSession(), ["IRCTC"], tmp_path, with_xbrl=False)
+    s = StubSession()
+    refresh_research(s, ["IRCTC"], tmp_path, with_xbrl=False)
+    assert s.calls == []
+    assert "already had every requested kind" in capsys.readouterr().out
+
+
+def test_carried_over_kinds_are_marked_so_a_resume_does_not_read_as_a_refetch(
+        tmp_path, capsys):
+    refresh_research(StubSession(), ["IRCTC"], tmp_path, kinds=("insider",),
+                     with_xbrl=False)
+    capsys.readouterr()
+    refresh_research(StubSession(), ["IRCTC"], tmp_path, with_xbrl=False)
+    out = capsys.readouterr().out
+    assert "insider=5*" in out, out
+
+
+def test_an_unreadable_marker_refetches_rather_than_skipping(tmp_path):
+    """A corrupt marker must not be read as 'this symbol is complete'."""
+    refresh_research(StubSession(), ["IRCTC"], tmp_path, kinds=("insider",),
+                     with_xbrl=False)
+    (tmp_path / "_done" / "IRCTC.json").write_text("{ not json",
+                                                   encoding="utf-8")
+    s = StubSession()
+    refresh_research(s, ["IRCTC"], tmp_path, kinds=("insider",),
+                     with_xbrl=False)
+    assert s.calls, "a corrupt marker was treated as complete"
+
+
+def test_an_incremental_run_does_not_refetch_xbrl_it_already_has(tmp_path):
+    """REGRESSION for the cost of a full backfill. A historical filing's XBRL
+    never changes, and RELIANCE alone has 53 of them. Refetching every one on
+    every run is what turns a full-universe pass into ~92,000 requests and
+    ~25 hours; skipping the parsed ones makes an incremental run cost one
+    document per genuinely NEW filing."""
+    first = StubSession()
+    refresh_research(first, ["RELIANCE"], tmp_path, kinds=("filings",))
+    n_first = sum(1 for k, _ in first.calls if k == "xbrl")
+    assert n_first > 10, "expected a real backfill on the first run"
+
+    second = StubSession()
+    refresh_research(second, ["RELIANCE"], tmp_path, kinds=("filings",),
+                     force=True)
+    n_second = sum(1 for k, _ in second.calls if k == "xbrl")
+    assert n_second == 0, f"refetched {n_second} documents it already had"
+
+
+def test_a_no_xbrl_run_does_not_block_a_later_full_one(tmp_path):
+    """The skip checks for parsed PERIODS, not merely for the file. A filing
+    stored by --no-xbrl has no numbers, and a later full run must still go and
+    get them - otherwise --no-xbrl silently poisons the store."""
+    refresh_research(StubSession(), ["RELIANCE"], tmp_path, kinds=("filings",),
+                     with_xbrl=False)
+    s = StubSession()
+    refresh_research(s, ["RELIANCE"], tmp_path, kinds=("filings",), force=True)
+    assert sum(1 for k, _ in s.calls if k == "xbrl") > 10
+
+
+def test_an_unreadable_stored_filing_is_refetched_rather_than_assumed_good(
+        tmp_path):
+    from desk.research.store import FilingStore
+
+    refresh_research(StubSession(), ["RELIANCE"], tmp_path, kinds=("filings",))
+    store = FilingStore(tmp_path / "filings")
+    for f in (store.root / "RELIANCE").iterdir():
+        f.write_text("{ not json", encoding="utf-8")
+    s = StubSession()
+    refresh_research(s, ["RELIANCE"], tmp_path, kinds=("filings",), force=True)
+    assert sum(1 for k, _ in s.calls if k == "xbrl") > 10

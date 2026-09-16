@@ -280,3 +280,54 @@ Being straight about the limits of this plan:
   Coverage will be reported per scan, not assumed.
 - Announcement *text* is unstructured. R1–R6 give structured metadata and the
   PDF link; actually reading the PDF is Stage 3's job, and costs money.
+
+---
+
+## 10. Measured cost of a full-universe pass (added after R2)
+
+Numbers, not estimates. Measured on a live run of 2 symbols (RELIANCE +
+IRCTC) through all five endpoints plus XBRL documents, then projected to the
+1,598 symbols Stage 0 survives.
+
+| run | requests | at 1.0s throttle |
+| --- | --- | --- |
+| first full backfill, with XBRL | ~92,700 | **~26 h** |
+| all five endpoints, `--no-xbrl` | ~8,000 | ~2.2 h |
+| incremental run, after the backfill | ~8,000 + new filings only | ~2.2 h |
+| daily top-up (`--kinds filings,announcements`) | ~3,200 | ~0.9 h |
+
+Disk: ~1.5 MB/symbol, so **~2.5 GB** for the universe. That is dominated by
+announcement history — RELIANCE alone has 3,345 announcements going back
+years.
+
+**The XBRL documents are the cost**, roughly 53 per symbol against 5 endpoint
+calls. Two things follow, and both are now implemented:
+
+- **An incremental run never refetches an XBRL it already parsed.** A
+  historical filing's numbers do not change. Without this, every run paid the
+  full 26 hours; with it, a re-run costs one document per genuinely new
+  filing.
+- **Resume is per KIND, not per symbol.** Getting this wrong was a silent
+  data-loss bug: `--kinds insider` marked the symbol done, and a later full
+  run skipped it entirely, never fetching filings or announcements while the
+  operator believed the data was complete.
+
+### How to actually run the backfill
+
+The first pass is a multi-day job, and it is designed to be interrupted:
+
+```powershell
+# Stage it. Every run resumes; nothing is refetched.
+python -m desk.marketdata.refresh research <SYMBOLS> --no-xbrl     # ~2h, metadata
+python -m desk.marketdata.refresh research <SYMBOLS>               # then documents
+```
+
+Do the `--no-xbrl` pass first: it gets every filing, announcement, board
+meeting, shareholding and insider record for the whole universe in about two
+hours, which is enough for the event gate (R4) and for most of R5. The
+documents — the part that takes a day — are only needed for R3's fundamental
+filters, and can fill in behind.
+
+**Not yet solved:** nothing bounds how far back a first fetch goes. A
+`--since` option would let a new symbol pull only recent history instead of
+all 3,345 announcements. Worth adding before the real backfill runs.

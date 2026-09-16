@@ -47,9 +47,17 @@ def refresh_research(session: NseSession, symbols: list[str], out_dir: Path, *,
 
     RESUMABLE BY DESIGN, not as an afterthought. A full-universe pass is
     ~1,598 symbols x 5 endpoints, and at the session's 1s throttle that is
-    over two hours - it will not reliably complete in one sitting. A symbol
-    whose output already exists is skipped unless --force, so an interrupted
-    or rate-limited run restarts from where it stopped rather than from zero.
+    over two hours - it will not reliably complete in one sitting. Work
+    already on file is skipped unless --force, so an interrupted or
+    rate-limited run restarts from where it stopped rather than from zero.
+
+    RESUME IS PER KIND, NOT PER SYMBOL, and that distinction is load-bearing.
+    Keyed on the symbol alone, `--kinds insider` marked the symbol done and a
+    later FULL run skipped it entirely - fetching no filings and no
+    announcements, silently, while the operator believed they had complete
+    research data. The marker therefore records WHICH kinds were fetched, and
+    a symbol is skipped only when every kind being asked for is already
+    there.
 
     Prints a progress counter because a multi-hour run with no output is
     indistinguishable from a hung one.
@@ -73,14 +81,23 @@ def refresh_research(session: NseSession, symbols: list[str], out_dir: Path, *,
             continue
 
         marker = out_dir / "_done" / f"{base}.json"
+        done: dict[str, int] = {}
         if marker.exists() and not force:
+            try:
+                done = json.loads(marker.read_text(encoding="utf-8")).get(
+                    "counts", {}) or {}
+            except (OSError, json.JSONDecodeError):
+                done = {}          # unreadable marker: refetch rather than skip
+
+        todo = tuple(k for k in kinds if k not in done)
+        if not todo:
             skipped += 1
             continue
 
-        counts: dict[str, int] = {}
+        counts: dict[str, int] = dict(done)
         undated_here: list = []
         try:
-            for kind in kinds:
+            for kind in todo:
                 n, und = _fetch_one_kind(session, base, kind, out_dir,
                                          filings_store, with_xbrl=with_xbrl)
                 counts[kind] = n
@@ -105,7 +122,10 @@ def refresh_research(session: NseSession, symbols: list[str], out_dir: Path, *,
              "fetched_at": datetime.now().isoformat(timespec="seconds")},
             indent=1), encoding="utf-8")
 
-        summary = " ".join(f"{k}={v}" for k, v in counts.items())
+        # Kinds carried over from a previous run are marked, so a resumed run
+        # does not read as though it refetched everything.
+        summary = " ".join(f"{k}={counts[k]}" + ("*" if k in done else "")
+                           for k in kinds if k in counts)
         print(f"[{i}/{total}] {base:14} {summary}")
 
         # Surfaced on the console AS IT HAPPENS, not only in a file. A record
@@ -120,8 +140,9 @@ def refresh_research(session: NseSession, symbols: list[str], out_dir: Path, *,
         total_undated += len(undated_here)
 
     if skipped:
-        print(f"\n{skipped} symbol(s) already fetched and skipped. "
-              f"Pass --force to refetch.")
+        print(f"\n{skipped} symbol(s) already had every requested kind and "
+              f"were skipped. Pass --force to refetch. A '*' above marks a "
+              f"kind carried over from an earlier run rather than refetched.")
     if total_undated:
         print(f"{total_undated} record(s) had no usable disclosure timestamp "
               f"and were NOT stored. They are listed above; if this number is "
@@ -140,6 +161,13 @@ def _fetch_one_kind(session: NseSession, base: str, kind: str, out_dir: Path,
         for f in filings:
             periods = ()
             if with_xbrl and f.xbrl_url:
+                # A historical filing's XBRL never changes, and RELIANCE alone
+                # has 53 of them. Refetching every one on every run is what
+                # turns a full-universe backfill into ~92,000 requests and 25
+                # hours; skipping the ones already parsed makes an incremental
+                # run cost one document per genuinely new filing.
+                if filings_store.has_numbers_for(f):
+                    continue
                 try:
                     periods, _warn = parse_xbrl(session.fetch_xbrl(f.xbrl_url),
                                                 symbol=base)
