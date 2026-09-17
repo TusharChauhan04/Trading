@@ -931,13 +931,21 @@ def _plan(*, as_of: date, regime: Regime, capital: float, max_trades: int,
 
 def _run_funnel(as_of: date, *, regime: Regime, capital: float,
                 max_trades: int, lookback: int,
-                portfolio: Portfolio | None) -> ScanSummary | None:
+                portfolio: Portfolio | None,
+                today: date | None = None) -> ScanSummary | None:
     """The whole scanner, reduced to the primitives build_plan takes.
 
     Returns None when no snapshot exists for the day - build_plan turns that
     into a NO TRADE naming the fetch command. Any other failure is also None
     plus a logged warning rather than a 500: the plan endpoint's job is to
     answer honestly every day, and "the scan could not run" is an answer.
+
+    `today` exists for the BACKTEST, and it is not cosmetic. The risk
+    engine refuses data more than 5 days old, measured against "today" - so
+    with the wall clock hard-coded, every historical session is stale by
+    definition and a backtest returns NO TRADE on every single day while
+    looking like it ran correctly. In a replay, today IS the simulated
+    date. Live callers omit it and get the IST clock.
     """
     store = BarStore(CONFIGS / "bhavcopy", calendar=_calendar_or_none())
     if not store.has(as_of):
@@ -977,7 +985,8 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
         stage4 = run_stage4(stage3.narrow(stage2), stage1,
                             cfg=RiskConfig(capital=capital),
                             portfolio=portfolio, events=events,
-                            max_trades=max_trades, today=_today_ist())
+                            max_trades=max_trades,
+                            today=today or _today_ist())
     except (ValueError, StoreError) as exc:
         log.warning("scan for %s could not run: %s", as_of, exc)
         return None
