@@ -220,3 +220,176 @@ def test_refresh_bhavcopy_refuses_the_wrong_day_and_writes_nothing(tmp_path):
     with pytest.raises(SourceError, match="expected bhavcopy for"):
         refresh_bhavcopy(session, date(2020, 1, 1), out_dir)
     assert not (out_dir / "2020-01-01.parquet").exists()
+
+
+# ===========================================================================
+# The bhavcopy range backfill
+# ===========================================================================
+#
+# Added with the range option itself. The single-day command was the only
+# way to fetch history, so a 60-day backfill meant a shell loop - and a
+# shell loop starts a new NseSession per day, which means a fresh cookie
+# handshake each time AND no throttle between days, because the throttle is
+# per-session. That is the exact traffic shape that gets an IP blocked.
+
+from datetime import timedelta
+
+from desk.marketdata.refresh import backfill_bhavcopy
+from desk.marketdata.sources.errors import RateLimited, SourceError
+
+
+class _CountingSession:
+    """Stands in for NseSession. Records which days were asked for."""
+
+    def __init__(self, fail_on=None, rate_limit_on=None):
+        self.asked: list[date] = []
+        self.fail_on = fail_on or set()
+        self.rate_limit_on = rate_limit_on
+
+    def fetch_bhavcopy(self, day: date) -> bytes:
+        self.asked.append(day)
+        if self.rate_limit_on == day:
+            raise RateLimited(f"429 on {day}")
+        if day in self.fail_on:
+            raise SourceError(f"no file for {day}")
+        return b"stub"
+
+
+def _patch_writer(monkeypatch, session_cls_out_dir=None):
+    """Replace refresh_bhavcopy with a stub that writes a marker file.
+
+    The parsing path is covered by test_nse_source.py; what matters here is
+    which days are ATTEMPTED and how failures are classified.
+    """
+    from desk.marketdata import refresh as mod
+
+    def _fake(session, day, out_dir):
+        session.fetch_bhavcopy(day)           # so the session records it
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / f"{day.isoformat()}.parquet").write_bytes(b"x")
+        return 0
+
+    monkeypatch.setattr(mod, "refresh_bhavcopy", _fake)
+
+
+def test_backfill_skips_weekends(monkeypatch, tmp_path):
+    _patch_writer(monkeypatch)
+    s = _CountingSession()
+    # 2026-09-05 is a Saturday, 09-06 a Sunday.
+    rc = backfill_bhavcopy(s, date(2026, 9, 4), date(2026, 9, 7), tmp_path)
+    assert rc == 0
+    assert s.asked == [date(2026, 9, 4), date(2026, 9, 7)]
+
+
+def test_backfill_skips_days_already_on_disk(monkeypatch, tmp_path):
+    """So an interrupted run resumes instead of refetching from zero."""
+    _patch_writer(monkeypatch)
+    (tmp_path / "2026-09-07.parquet").write_bytes(b"already here")
+    s = _CountingSession()
+    backfill_bhavcopy(s, date(2026, 9, 7), date(2026, 9, 9), tmp_path)
+    assert date(2026, 9, 7) not in s.asked
+    assert s.asked == [date(2026, 9, 8), date(2026, 9, 9)]
+
+
+def test_backfill_uses_one_session_for_the_whole_range(monkeypatch, tmp_path):
+    """The reason this function exists. A shell loop would hand each day a
+    fresh session: a new cookie handshake per day, and no throttle between
+    them because the throttle is per-session."""
+    _patch_writer(monkeypatch)
+    s = _CountingSession()
+    backfill_bhavcopy(s, date(2026, 9, 7), date(2026, 9, 11), tmp_path)
+    assert len(s.asked) == 5, "every day must go through the same session"
+
+
+def test_a_rate_limit_stops_the_run_and_exits_two(monkeypatch, tmp_path):
+    """Exit 2 is distinct from exit 1: a scheduler should retry 'come back
+    later' and should not retry 'something is broken'."""
+    _patch_writer(monkeypatch)
+    s = _CountingSession(rate_limit_on=date(2026, 9, 9))
+    rc = backfill_bhavcopy(s, date(2026, 9, 7), date(2026, 9, 11), tmp_path)
+    assert rc == 2
+    assert date(2026, 9, 10) not in s.asked, "must stop, not grind on"
+
+
+def test_work_done_before_a_rate_limit_survives(monkeypatch, tmp_path):
+    _patch_writer(monkeypatch)
+    s = _CountingSession(rate_limit_on=date(2026, 9, 9))
+    backfill_bhavcopy(s, date(2026, 9, 7), date(2026, 9, 11), tmp_path)
+    assert (tmp_path / "2026-09-07.parquet").exists()
+    assert (tmp_path / "2026-09-08.parquet").exists()
+
+    # And rerunning resumes from where it stopped.
+    s2 = _CountingSession()
+    backfill_bhavcopy(s2, date(2026, 9, 7), date(2026, 9, 11), tmp_path)
+    assert date(2026, 9, 7) not in s2.asked
+    assert date(2026, 9, 9) in s2.asked
+
+
+def test_a_missing_file_without_a_calendar_is_reported_as_unresolved(
+        monkeypatch, tmp_path, capsys):
+    """NSE serves nothing for a non-trading day, so with no calendar a
+    holiday and a broken fetch look identical. That ambiguity is REPORTED,
+    never guessed - an earlier version sniffed the error text for "404" and
+    called the remainder holidays, which would mark a real outage as a
+    holiday and carry on.
+
+    The run still succeeds, because a backfill spanning any holiday would
+    otherwise always exit non-zero, and a command that always fails stops
+    being read."""
+    _patch_writer(monkeypatch)
+    s = _CountingSession(fail_on={date(2026, 9, 9)})
+    rc = backfill_bhavcopy(s, date(2026, 9, 7), date(2026, 9, 11), tmp_path,
+                           calendar=None)
+    assert rc == 0
+    assert (tmp_path / "2026-09-10.parquet").exists(), "must keep going"
+
+    out = capsys.readouterr().out
+    assert "unresolved" in out
+    assert "cannot be told apart" in out
+    # And it must not ASSERT which one it was.
+    assert "likely holiday" not in out
+    assert "probably a holiday" not in out
+
+
+def test_a_real_failure_with_a_calendar_exits_non_zero(monkeypatch, tmp_path):
+    """With a calendar saying the day trades, no file IS a failure."""
+    _patch_writer(monkeypatch)
+
+    class _Cal:
+        def is_trading_day(self, d):
+            return d.weekday() < 5
+
+    s = _CountingSession(fail_on={date(2026, 9, 9)})
+    rc = backfill_bhavcopy(s, date(2026, 9, 7), date(2026, 9, 11), tmp_path,
+                           calendar=_Cal())
+    assert rc == 1
+
+
+def test_a_calendar_removes_holidays_from_the_range(monkeypatch, tmp_path):
+    _patch_writer(monkeypatch)
+
+    class _Cal:
+        def is_trading_day(self, d):
+            return d.weekday() < 5 and d != date(2026, 9, 9)
+
+    s = _CountingSession()
+    backfill_bhavcopy(s, date(2026, 9, 7), date(2026, 9, 11), tmp_path,
+                      calendar=_Cal())
+    assert date(2026, 9, 9) not in s.asked
+
+
+def test_a_reversed_range_is_refused(tmp_path):
+    s = _CountingSession()
+    assert backfill_bhavcopy(s, date(2026, 9, 11), date(2026, 9, 1),
+                             tmp_path) == 1
+    assert s.asked == []
+
+
+def test_a_fully_cached_range_asks_for_nothing(monkeypatch, tmp_path):
+    _patch_writer(monkeypatch)
+    for d in ("2026-09-07", "2026-09-08"):
+        (tmp_path / f"{d}.parquet").write_bytes(b"x")
+    s = _CountingSession()
+    assert backfill_bhavcopy(s, date(2026, 9, 7), date(2026, 9, 8),
+                             tmp_path) == 0
+    assert s.asked == []

@@ -19,12 +19,14 @@ import argparse
 import json
 import os
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from desk.marketdata.calendar_in import CalendarError, TradingCalendar
 from desk.marketdata.sources.nse import (
     NseSession,
+    RateLimited,
     SourceError,
     bhavcopy_equity_only,
     parse_bhavcopy,
@@ -33,6 +35,10 @@ from desk.marketdata.sources.nse import (
 )
 from desk.marketdata.symbols import Symbol, SymbolError
 from desk.research.refresh import RESEARCH_KINDS, refresh_research
+
+# NSE trades in IST. date.today() reads server-local time, which is silently
+# 5:30h out on a UTC-clock VPS - the same reasoning as desk/api/main.py.
+IST = ZoneInfo("Asia/Kolkata")
 
 
 def _merge_calendars(existing: dict, fresh: dict) -> dict:
@@ -223,6 +229,100 @@ def refresh_bhavcopy(session: NseSession, day: date, out_dir: Path) -> int:
     return 0
 
 
+def backfill_bhavcopy(session: NseSession, start: date, end: date,
+                      out_dir: Path, *, calendar=None) -> int:
+    """Fetch every trading day in [start, end] that is not already on disk.
+
+    ONE SESSION for the whole range. The single-day command was the only way
+    to do this, and looping it from a shell means a fresh cookie handshake
+    per day - 60 extra requests to NSE's homepage for a 60-day backfill,
+    which is both wasteful and exactly the traffic pattern that gets an IP
+    blocked. The throttle is per-session too, so a shell loop bypasses it
+    entirely.
+
+    Days already on disk are SKIPPED, so an interrupted run resumes instead
+    of refetching. Weekends and holidays are skipped when a calendar is
+    available; without one, every weekday is attempted and NSE's 404 for a
+    non-trading day is treated as "not a trading day" rather than a failure.
+
+    Returns 0 if every attempted day succeeded, 1 if any genuinely failed,
+    2 if NSE rate-limited (distinct, because a scheduler should retry that
+    one and not the other).
+    """
+    if start > end:
+        print(f"--from {start} is after --to {end}")
+        return 1
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    days: list[date] = []
+    cursor = start
+    while cursor <= end:
+        if cursor.weekday() < 5:          # Mon-Fri; NSE cash does not trade weekends
+            days.append(cursor)
+        cursor += timedelta(days=1)
+
+    if calendar is not None:
+        try:
+            days = [d for d in days if calendar.is_trading_day(d)]
+        except Exception:                 # noqa: BLE001 - calendar is optional
+            print("  (calendar could not classify these dates; attempting "
+                  "every weekday and letting NSE decide)")
+
+    todo = [d for d in days if not (out_dir / f"{d.isoformat()}.parquet").exists()]
+    have = len(days) - len(todo)
+    print(f"{len(days)} trading day(s) in range; {have} already on disk, "
+          f"{len(todo)} to fetch")
+    if not todo:
+        return 0
+
+    fetched = failed = unresolved = 0
+    for i, day in enumerate(todo, 1):
+        try:
+            print(f"[{i}/{len(todo)}] {day}", end="  ")
+            refresh_bhavcopy(session, day, out_dir)
+            fetched += 1
+        except RateLimited as exc:
+            # Stop the whole run. Days already written stay written, and
+            # rerunning the same command resumes from here.
+            print(f"\nRATE LIMITED at {day}: {exc}")
+            print(f"{fetched} day(s) fetched before stopping. Rerun the same "
+                  f"command to resume - days already on disk are skipped.")
+            return 2
+        except SourceError as exc:
+            if calendar is None:
+                # NSE serves no file for a non-trading day, so with no
+                # calendar this is genuinely AMBIGUOUS - a holiday and a
+                # broken fetch look identical from here.
+                #
+                # It is deliberately not guessed. An earlier version
+                # sniffed the error text for "404" and called the rest
+                # holidays, which is a coin flip dressed as a diagnosis: it
+                # would mark a real outage as a holiday and move on. These
+                # days are counted separately and named at the end, and the
+                # run does not fail on them - a backfill spanning any
+                # holiday would otherwise always exit non-zero, and a
+                # command that always fails stops being read.
+                print(f"  no file - cannot tell holiday from failure: {exc}")
+                unresolved += 1
+                continue
+            # With a calendar saying this day trades, no file IS a failure.
+            print(f"  FAILED  {exc}")
+            failed += 1
+
+    print(f"\nfetched {fetched} day(s)"
+          + (f", {unresolved} unresolved" if unresolved else "")
+          + (f", {failed} FAILED" if failed else ""))
+    if unresolved:
+        print(f"{unresolved} day(s) returned no file, and with no holiday "
+              f"calendar loaded a market holiday cannot be told apart from a "
+              f"failed fetch. Run 'python -m desk.marketdata.refresh "
+              f"calendar' to remove the ambiguity, then rerun - days already "
+              f"on disk are skipped.")
+    if failed:
+        print("Exiting non-zero so a scheduled run does not report success.")
+    return 1 if failed else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="desk.marketdata.refresh",
                                 description=__doc__.split("\n")[0])
@@ -264,8 +364,13 @@ def main(argv: list[str] | None = None) -> int:
     b = sub.add_parser("bhavcopy",
                        help="one day's full bhavcopy - the WHOLE exchange in "
                             "a single request, not per symbol")
-    b.add_argument("--date", type=date.fromisoformat, required=True,
-                   metavar="YYYY-MM-DD")
+    b.add_argument("--date", type=date.fromisoformat, metavar="YYYY-MM-DD")
+    b.add_argument("--from", dest="start", type=date.fromisoformat,
+                   metavar="YYYY-MM-DD",
+                   help="backfill a RANGE using one session. Days already "
+                        "on disk are skipped, so an interrupted run resumes.")
+    b.add_argument("--to", dest="end", type=date.fromisoformat,
+                   metavar="YYYY-MM-DD", help="defaults to today (IST)")
     b.add_argument("--out-dir", type=Path, default=CONFIGS / "bhavcopy")
 
     args = p.parse_args(argv)
@@ -276,6 +381,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.what == "calendar":
             return refresh_calendar(session, args.out, replace=args.replace)
         if args.what == "bhavcopy":
+            if args.start:
+                end = args.end or datetime.now(IST).date()
+                cal = None
+                try:
+                    cal = TradingCalendar.from_file(CONFIGS / "holidays_nse.json")
+                except Exception:              # noqa: BLE001 - optional
+                    print("no holiday calendar loaded; every weekday will be "
+                          "attempted and NSE will decide")
+                return backfill_bhavcopy(session, args.start, end,
+                                         args.out_dir, calendar=cal)
+            if not args.date:
+                print("bhavcopy needs either --date or --from/--to")
+                return 1
             return refresh_bhavcopy(session, args.date, args.out_dir)
         if args.what == "research":
             kinds = tuple(k.strip() for k in args.kinds.split(",") if k.strip())

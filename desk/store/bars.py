@@ -33,11 +33,16 @@ wrong:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
 
 import pandas as pd
+
+# The mainstream cash-equity series. Imported rather than redefined so the
+# store and the bhavcopy parser cannot drift apart on what "equity" means.
+# No cycle: sources.nse does not import the store.
+from desk.marketdata.sources.nse import BHAVCOPY_EQUITY_SERIES
 
 from desk.marketdata.calendar_in import CalendarError, TradingCalendar
 
@@ -76,6 +81,11 @@ class Coverage:
     calendar_checked: bool = False
     truncated: bool = False
     """True when fewer days were available than were asked for."""
+    collapsed_series: dict = field(default_factory=dict)
+    """symbol -> rows dropped because the base symbol traded in more than
+    one series that day (EQ alongside P1 partly-paid, say). The mainstream
+    equity row is the one kept. Reported rather than silent, because the
+    alternative price belonged to a different instrument."""
 
     @property
     def complete(self) -> bool:
@@ -87,6 +97,20 @@ class Coverage:
         if self.days_loaded == 0:
             return "no snapshots in range"
         span = f"{self.days_loaded} sessions, {self.start} to {self.end}"
+
+        # Appended BEFORE the branches below, not inside one of them. It
+        # first went in on the "complete" path only, so a store with no
+        # calendar - the common case - reported the span and silently
+        # dropped the collapse note. A fact worth reporting is worth
+        # reporting on every path, or it is only reported when nothing else
+        # went wrong.
+        if self.collapsed_series:
+            n = sum(self.collapsed_series.values())
+            names = ", ".join(sorted(self.collapsed_series)[:3])
+            more = ("..." if len(self.collapsed_series) > 3 else "")
+            span += (f"; {n} non-equity row(s) collapsed for {names}{more} "
+                     f"(kept the EQ series)")
+
         if not self.calendar_checked:
             return f"{span} (gaps UNCHECKED - no calendar supplied)"
         if self.missing:
@@ -237,7 +261,12 @@ class BarStore:
               columns: list[str] | None) -> pd.DataFrame:
         cols = None
         if columns is not None:
-            cols = sorted(set(columns) | {"symbol", "date"})
+            # `series` is pulled in even when the caller did not ask for it.
+            # Without it a (date, symbol) collision between two series is
+            # unresolvable, and the frame silently carries two different
+            # instruments under one name. It is dropped again below if it
+            # was not requested.
+            cols = sorted(set(columns) | {"symbol", "date", "series"})
         try:
             df = pd.read_parquet(path, columns=cols)
         except Exception as exc:                       # corrupt / truncated
@@ -316,7 +345,9 @@ class BarStore:
                                   calendar_checked=False),
             )
 
-        frame = self._read_many(days, columns, symbols)
+        frame, collided = self._resolve_series(self._read_many(days, columns,
+                                                                symbols),
+                                               columns)
         if not frame.empty:
             # Deliberately NOT sorted: measured at 0.45-0.63s for 567k rows,
             # and no consumer needs it - `wide_many` unstacks (which sorts its
@@ -324,7 +355,55 @@ class BarStore:
             frame = frame.reset_index(drop=True)
 
         cov = self._coverage(days[0], days[-1], days, truncated=truncated)
+        if collided:
+            cov = replace(cov, collapsed_series=collided)
         return History(frame=frame, coverage=cov)
+
+    @staticmethod
+    def _resolve_series(frame: pd.DataFrame, columns):
+        """One instrument per (date, symbol). Returns (frame, collapsed).
+
+        THE PROBLEM THIS SOLVES, found only once 93 sessions were on disk:
+        a base symbol can trade in more than one series on the same day.
+        AARTISURF trades EQ and P1 (partly paid) together, and another name
+        trades EQ and N3 - 38 rows across 2 symbols in this store. The
+        bhavcopy parser keeps both deliberately, because they are genuinely
+        different instruments, and it is right to.
+
+        But `wide_many` unstacks on (date, symbol), and a duplicated index
+        cannot reshape - so the whole scan died with "Index contains
+        duplicate entries". That is the GOOD failure. The bad one is what a
+        bare drop_duplicates() would have done: silently keep whichever row
+        came first, which for a partly-paid line is a completely different
+        price. The series would then carry an artificial step, exactly the
+        corruption the unadjusted-corporate-action guard exists to prevent,
+        and nothing would report it.
+
+        So the mainstream cash-equity series WINS, explicitly, and anything
+        collapsed is counted and surfaced through Coverage. A symbol that
+        has no EQ row at all keeps whatever series it does have - dropping
+        it would remove a tradeable SME name on a technicality.
+        """
+        if frame.empty or "series" not in frame.columns:
+            return frame, {}
+
+        dup_mask = frame.duplicated(["date", "symbol"], keep=False)
+        collapsed: dict[str, int] = {}
+        if dup_mask.any():
+            dup = frame[dup_mask]
+            # Rank: preferred series first, everything else after, so
+            # idxmin picks EQ when present and the lone survivor otherwise.
+            pref = dup["series"].isin(BHAVCOPY_EQUITY_SERIES)
+            order = (~pref).astype(int)
+            keep_idx = order.groupby([dup["date"], dup["symbol"]]).idxmin()
+            drop_idx = dup.index.difference(pd.Index(keep_idx.to_numpy()))
+            for sym, n in frame.loc[drop_idx, "symbol"].value_counts().items():
+                collapsed[str(sym)] = int(n)
+            frame = frame.drop(index=drop_idx)
+
+        if columns is not None and "series" not in columns:
+            frame = frame.drop(columns=["series"])
+        return frame, collapsed
 
     def _read_many(self, days: list[date], columns: list[str] | None,
                    symbols: list[str] | set[str] | None) -> pd.DataFrame:
@@ -354,12 +433,28 @@ class BarStore:
             # this one file is read the slow way rather than trusted.
             self._read(path, d, columns)
 
-        cols = None
-        if columns is not None:
-            cols = sorted(set(columns) | {"symbol", "date"})
-
         try:
             dataset = pads.dataset([str(p) for p in paths], format="parquet")
+        except Exception as exc:
+            raise StoreError(f"cannot open the snapshot set: {exc}") from exc
+
+        cols = None
+        if columns is not None:
+            wanted = set(columns) | {"symbol", "date"}
+            # `series` is pulled in even when the caller did not ask for it,
+            # because without it a (date, symbol) collision between two
+            # series is unresolvable and the frame silently carries two
+            # different instruments under one name. Dropped again after the
+            # resolution if it was not requested.
+            #
+            # Asked for only when the dataset HAS it: older snapshots and
+            # hand-built test fixtures do not, and pyarrow fails the whole
+            # read on a missing field rather than ignoring it.
+            if "series" in dataset.schema.names:
+                wanted.add("series")
+            cols = sorted(wanted)
+
+        try:
             filt = (pc.field("symbol").isin(list(symbols))
                     if symbols is not None else None)
             table = dataset.to_table(columns=cols, filter=filt)

@@ -303,3 +303,109 @@ def test_the_batched_read_returns_the_same_frame_as_a_per_file_read(store):
     a = h.frame.sort_values(["symbol", "date"]).reset_index(drop=True)
     b = per_file.sort_values(["symbol", "date"]).reset_index(drop=True)
     _pd.testing.assert_frame_equal(a[b.columns], b, check_dtype=False)
+
+
+# ===========================================================================
+# One instrument per (date, symbol)
+# ===========================================================================
+#
+# REGRESSION, and one that only appeared once 93 sessions were on disk. A
+# base symbol can trade in more than one series on the same day: AARTISURF
+# trades EQ and P1 (partly paid) together, M&MFIN trades EQ and N3. The
+# bhavcopy parser keeps both, correctly - they are different instruments.
+#
+# wide_many unstacks on (date, symbol), so the duplicated index killed the
+# whole scan with "Index contains duplicate entries, cannot reshape". That
+# is the GOOD failure. The dangerous fix is drop_duplicates(), which keeps
+# whichever row happens to come first - for a partly-paid line, a completely
+# different price - and puts an artificial step in the series with nothing
+# reported. Same corruption the unadjusted-corporate-action guard exists to
+# prevent.
+
+def _multi_series_day(tmp_path, day: date, rows):
+    """rows: list of (symbol, series, close)."""
+    import pandas as pd
+    frame = pd.DataFrame([
+        {"symbol": sym, "series": ser, "date": day, "open": close,
+         "high": close, "low": close, "close": close, "volume": 1000}
+        for sym, ser, close in rows
+    ])
+    frame.to_parquet(tmp_path / f"{day.isoformat()}.parquet", index=False)
+
+
+def test_the_equity_series_wins_a_same_day_collision(tmp_path):
+    from desk.store import BarStore
+    day = date(2026, 9, 11)
+    _multi_series_day(tmp_path, day, [
+        ("AARTISURF.NS", "P1", 11.0),      # partly paid, listed FIRST
+        ("AARTISURF.NS", "EQ", 550.0),     # the real cash line
+        ("RELIANCE.NS", "EQ", 1257.5),
+    ])
+    h = BarStore(tmp_path).history(as_of=day, lookback=1,
+                                   columns=["open", "high", "low", "close",
+                                            "volume"])
+    got = h.frame.set_index("symbol")["close"]
+    assert got["AARTISURF.NS"] == 550.0, "took the partly-paid price"
+    assert got["RELIANCE.NS"] == 1257.5
+
+
+def test_a_collision_is_reported_never_silent(tmp_path):
+    from desk.store import BarStore
+    day = date(2026, 9, 11)
+    _multi_series_day(tmp_path, day, [
+        ("AARTISURF.NS", "EQ", 550.0),
+        ("AARTISURF.NS", "P1", 11.0),
+        ("RELIANCE.NS", "EQ", 1257.5),
+    ])
+    h = BarStore(tmp_path).history(as_of=day, lookback=1,
+                                   columns=["close"])
+    assert h.coverage.collapsed_series == {"AARTISURF.NS": 1}
+    assert "collapsed" in h.coverage.describe()
+    assert "AARTISURF.NS" in h.coverage.describe()
+
+
+def test_a_collision_no_longer_breaks_the_reshape(tmp_path):
+    """The symptom that exposed it."""
+    from desk.store import BarStore
+    day = date(2026, 9, 11)
+    _multi_series_day(tmp_path, day, [
+        ("AARTISURF.NS", "EQ", 550.0),
+        ("AARTISURF.NS", "P1", 11.0),
+    ])
+    h = BarStore(tmp_path).history(as_of=day, lookback=1, columns=["close"])
+    wide = h.wide_many(["close"])
+    assert wide["close"].shape == (1, 1)
+    assert wide["close"].iloc[0, 0] == 550.0
+
+
+def test_a_symbol_with_no_equity_series_is_kept(tmp_path):
+    """An SME name that trades only in SM has no EQ row. Dropping it would
+    remove a tradeable instrument on a technicality."""
+    from desk.store import BarStore
+    day = date(2026, 9, 11)
+    _multi_series_day(tmp_path, day, [("SMECO.NS", "SM", 42.0)])
+    h = BarStore(tmp_path).history(as_of=day, lookback=1, columns=["close"])
+    assert list(h.frame["symbol"]) == ["SMECO.NS"]
+    assert h.coverage.collapsed_series == {}
+
+
+def test_series_is_not_returned_unless_it_was_asked_for(tmp_path):
+    from desk.store import BarStore
+    day = date(2026, 9, 11)
+    _multi_series_day(tmp_path, day, [("RELIANCE.NS", "EQ", 1257.5)])
+    h = BarStore(tmp_path).history(as_of=day, lookback=1, columns=["close"])
+    assert "series" not in h.frame.columns
+
+    h2 = BarStore(tmp_path).history(as_of=day, lookback=1,
+                                    columns=["close", "series"])
+    assert "series" in h2.frame.columns
+
+
+def test_no_collision_reports_nothing(tmp_path):
+    from desk.store import BarStore
+    day = date(2026, 9, 11)
+    _multi_series_day(tmp_path, day, [("RELIANCE.NS", "EQ", 1257.5),
+                                      ("TCS.NS", "EQ", 3000.0)])
+    h = BarStore(tmp_path).history(as_of=day, lookback=1, columns=["close"])
+    assert h.coverage.collapsed_series == {}
+    assert "collapsed" not in h.coverage.describe()

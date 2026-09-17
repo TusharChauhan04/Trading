@@ -117,10 +117,28 @@ UNAVAILABLE = (
     "Strategy votes not counted - the six strategy scripts are not on disk, "
     "and 0 of 6 are `trusted` on the maturity ladder. An untrusted strategy "
     "may not influence a live shortlist even when its code is present.",
-    "Fundamental filters not applied - no fundamentals source is wired.",
     "Sentiment and news filters not applied - no announcements feed is wired.",
     "Pattern and market-structure rules not applied - swing-point structure "
     "is computed per symbol and has not been wired into this stage yet.",
+)
+
+#: Said only when no table was supplied. It used to sit in UNAVAILABLE
+#: unconditionally, which meant that once the fundamentals cache WAS wired
+#: the plan kept reporting "no fundamentals source is wired" while happily
+#: using one. A caveat that contradicts what the code did is worse than no
+#: caveat: it tells the reader a check was skipped when it ran.
+UNAVAILABLE_NO_FUNDAMENTALS = (
+    "Fundamental filters not applied - no fundamentals table was supplied.",
+)
+
+#: And this is said when a table IS present but no hard threshold is set.
+#: "Described but not screened" is a real third state, distinct from both
+#: "no data" and "filtered": the figures reach Stage 3's prompt and the
+#: ranking, and nothing is excluded on them.
+UNAVAILABLE_NO_THRESHOLDS = (
+    "Fundamentals were loaded and reported, but NO hard filter is "
+    "configured - neither max_filing_age_days nor min_net_margin_pct. Names "
+    "were described on their fundamentals, not screened by them.",
 )
 
 
@@ -253,11 +271,14 @@ def run_stage2(
         )
 
     if universe_in == 0:
-        return Stage2Result(
+        empty = Stage2Result(
             as_of=stage1.as_of, regime=regime, ranked=_empty_ranked(()),
             factors=(), universe_in=0, universe_out=0,
             excluded={"nothing flagged by Stage 1": 0},
         )
+        _note_fundamentals(empty, fundamentals, max_filing_age_days,
+                           min_net_margin_pct, [])
+        return empty
 
     # --- regime silencing, and the honest reasons a factor cannot run ------
     active: list[FactorSpec] = []
@@ -273,12 +294,25 @@ def run_stage2(
             active.append(f)
 
     if not active:
-        return Stage2Result(
+        # MERGE, never replace. This path used to build a fresh dict, which
+        # threw away every exclusion counted before it - so when a
+        # fundamental filter removed the whole shortlist, the empty frame
+        # silenced every factor, this branch fired, and the plan reported
+        # "no factor could run in this regime". The regime was blameless;
+        # the filter had done it. A wrong cause is worse than no cause,
+        # because it sends the reader to fix the wrong thing.
+        reached = len(src)
+        blocked = dict(excluded)
+        if reached:
+            blocked["no factor could run in this regime"] = reached
+        stalled = Stage2Result(
             as_of=stage1.as_of, regime=regime, ranked=_empty_ranked(()),
             factors=(), silenced=silenced, universe_in=universe_in,
-            universe_out=0,
-            excluded={"no factor could run in this regime": universe_in},
+            universe_out=0, excluded=blocked,
         )
+        _note_fundamentals(stalled, fundamentals, max_filing_age_days,
+                           min_net_margin_pct, fundamental_notes)
+        return stalled
 
     # --- cross-sectional percentile ranks ---------------------------------
     ranks = pd.DataFrame(index=src.index)
@@ -344,8 +378,24 @@ def run_stage2(
         silenced=silenced, universe_in=universe_in, universe_out=len(out),
         excluded=excluded,
     )
-    result.unavailable.extend(fundamental_notes)
+    _note_fundamentals(result, fundamentals, max_filing_age_days,
+                       min_net_margin_pct, fundamental_notes)
     return result
+
+
+def _note_fundamentals(result, fundamentals, max_filing_age_days,
+                       min_net_margin_pct, notes) -> None:
+    """Say which of the three fundamental states this run was in.
+
+    Called from EVERY exit, because a run that stopped early still has a
+    true answer to "were fundamentals checked" - and an exit that skips this
+    reports whichever state the default happened to be.
+    """
+    if fundamentals is None:
+        result.unavailable.extend(UNAVAILABLE_NO_FUNDAMENTALS)
+    elif max_filing_age_days is None and min_net_margin_pct is None:
+        result.unavailable.extend(UNAVAILABLE_NO_THRESHOLDS)
+    result.unavailable.extend(notes)
 
 
 def _apply_fundamentals(src, fundamentals, excluded, *,

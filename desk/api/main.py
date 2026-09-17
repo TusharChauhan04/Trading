@@ -37,6 +37,7 @@ from desk.llm.budget import CostMeter
 from desk.llm.client import MeteredClient
 from desk.llm.providers.openai import OpenAIProvider
 from desk.research.events import load_calendar
+from desk.research.fundamentals import FundamentalsCache
 from desk.scanner.stage2 import run_stage2
 from desk.scanner.stage3 import run_stage3
 from desk.scanner.stage4 import run_stage4
@@ -357,6 +358,31 @@ def _event_calendar(as_of: date):
     if stored.stale:
         return None, [stored.caveat]
     return stored.calendar, []
+
+
+def _fundamentals(as_of: date):
+    """(table, caveats) for Stage 2's fundamental layer.
+
+    Read from the pre-open cache rather than computed here. build_table is
+    ~12s for the full universe and this endpoint is stateless and recomputes
+    the funnel on every request, so computing it inline would put 12 seconds
+    on every /plan/today. See desk/research/fundamentals.py.
+
+    A table too far behind the scan date is treated as ABSENT, the same way
+    a stale event calendar is: reporting last quarter's revenue as this
+    quarter's is a false statement rather than a slightly old one. A table
+    dated AFTER the scan date is never even opened - the cache selects by
+    filename, so look-ahead is structurally impossible rather than checked.
+    """
+    cached = FundamentalsCache(CONFIGS / "research" / "fundamentals").load(as_of)
+    if cached is None:
+        return None, ["no fundamentals table on file, so no fundamental "
+                      "check ran - names were not screened on revenue, "
+                      "profit or margin. Build it with 'python -m "
+                      "desk.research.refresh fundamentals'."]
+    if cached.stale:
+        return None, [cached.caveat]
+    return cached.frame, [c for c in (cached.caveat,) if c]
 
 
 def _llm_client():
@@ -924,14 +950,30 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
                                 symbols=survivors, columns=list(REQUIRED_BARS))
         actions, unchecked = _actions_for(survivors)
         stage1 = run_stage1(history, as_of=as_of, actions=actions)
-        stage2 = run_stage2(stage1, regime=regime)
+
+        # R3's fundamental layer. The table is JOINED whether or not a filter
+        # is set, so Stage 2 can report honestly how many candidates it could
+        # not check - and so Stage 3 sees real figures instead of the
+        # "not available" placeholder.
+        #
+        # THE HARD FILTERS ARE DELIBERATELY NOT SET HERE. max_filing_age_days
+        # and min_net_margin_pct decide which companies are tradeable, which
+        # is a policy choice rather than an engineering default, and picking
+        # one silently would change what the desk trades without anyone
+        # choosing it. Measured on real data: every filing currently on file
+        # is 582-610 days old, so a plausible-looking age filter of 200 days
+        # would exclude the ENTIRE universe and return NO TRADE every day
+        # while looking like it was working.
+        fundamentals, fundamental_caveats = _fundamentals(as_of)
+        stage2 = run_stage2(stage1, regime=regime, fundamentals=fundamentals)
 
         # R4's event gate and R7's narrative pass. Both are OPTIONAL by
         # construction and both declare themselves when absent, so this
         # endpoint answers every day whether or not a calendar has been
         # refreshed and whether or not an LLM key is configured.
         events, event_caveats = _event_calendar(as_of)
-        stage3 = run_stage3(stage2, client=_llm_client(), events=events)
+        stage3 = run_stage3(stage2, client=_llm_client(), events=events,
+                            fundamentals=fundamentals)
         stage4 = run_stage4(stage3.narrow(stage2), stage1,
                             cfg=RiskConfig(capital=capital),
                             portfolio=portfolio, events=events,
@@ -955,6 +997,7 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
         no_trade_reason=stage4.no_trade_reason(),
         caveats=[*stage0.caveats, *stage1.unavailable, *stage2.unavailable,
                  *stage3.unavailable, *stage4.unavailable, *event_caveats,
+                 *fundamental_caveats,
                  *_action_caveat(unchecked, len(survivors))],
         coverage_note=stage1.coverage.describe(),
     )

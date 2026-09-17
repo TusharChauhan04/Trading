@@ -250,6 +250,82 @@ def _research_to_json(rec) -> dict:
 # ONE market-wide request covering every listed company. Putting it in the
 # per-symbol loop would refetch the same market-wide file once per symbol.
 
+def _cmd_fundamentals(args) -> int:
+    """Build the pre-open fundamentals table. Touches no network.
+
+    Separate from `research` because it is a different kind of work: that
+    one is ~1,598 throttled HTTP requests over hours, this is a pure
+    recomputation from what is already on disk and takes seconds. Running
+    them together would mean you could not rebuild the table after fixing a
+    parser without refetching the internet.
+    """
+    import pandas as pd
+
+    from desk.research.fundamentals import FundamentalsCache, build_table
+    from desk.research.store import FilingStore
+
+    universe = Path(args.universe)
+    snapshots = sorted(universe.glob("*.parquet")) if universe.is_dir() else []
+    if not snapshots:
+        print(f"no bhavcopy snapshots in {universe} - the symbol universe "
+              f"comes from there. Run 'python -m desk.marketdata.refresh "
+              f"bhavcopy' first.")
+        return 1
+
+    if args.as_of:
+        try:
+            as_of = date.fromisoformat(args.as_of)
+        except ValueError:
+            print(f"--as-of must be YYYY-MM-DD, got {args.as_of!r}")
+            return 1
+    else:
+        as_of = date.fromisoformat(snapshots[-1].stem)
+
+    # The universe must come from a snapshot dated AT OR BEFORE as_of. Taking
+    # today's symbol list for a historical scan would quietly introduce
+    # survivorship: names listed since as_of would appear, and names delisted
+    # since would not. The filings store already refuses to read a filing
+    # disclosed after as_of; this closes the same hole one level up.
+    eligible = [p for p in snapshots if p.stem <= as_of.isoformat()]
+    if not eligible:
+        print(f"no bhavcopy snapshot on or before {as_of} - cannot build a "
+              f"point-in-time universe for that date.")
+        return 1
+    snap = eligible[-1]
+    symbols = sorted(pd.read_parquet(snap)["symbol"].astype(str).unique())
+
+    store = FilingStore(args.filings)
+    frame, coverage = build_table(store, symbols, as_of=as_of)
+
+    dest = FundamentalsCache(args.out).save(frame, as_of=as_of,
+                                            coverage=coverage)
+    total = sum(coverage.values()) or 1
+    print(f"built {len(frame)} row(s) for {as_of} from {len(symbols)} "
+          f"symbols (universe: {snap.name})")
+    for reason, n in sorted(coverage.items(), key=lambda kv: -kv[1]):
+        print(f"  {n:6}  {reason}  ({100.0 * n / total:.1f}%)")
+    print(f"wrote {dest}")
+
+    if not len(frame):
+        # An empty table saves, loads, and then reports every company as
+        # "no filing on file" - which is TRUE but reads like a working
+        # pipeline producing a quiet answer. Say it plainly instead.
+        print("WARNING: the table is EMPTY. Every fundamental check will "
+              "report NOT CHECKED. Fetch filings first with 'python -m "
+              "desk.research.refresh research <SYMBOLS> --kinds filings'.")
+        return 1
+
+    # The age of the newest filing decides whether an age filter is usable at
+    # all, and it is not obvious from the row count. Print it so nobody sets
+    # max_filing_age_days without seeing what it would exclude.
+    if "days_since_filing" in frame and len(frame):
+        ages = frame["days_since_filing"].dropna()
+        if len(ages):
+            print(f"  filing age (days): min {int(ages.min())}, "
+                  f"median {int(ages.median())}, max {int(ages.max())}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -263,6 +339,19 @@ def main(argv: list[str] | None = None) -> int:
         help="the market-wide corporate event calendar (ONE request)")
     ev.add_argument("--out", default="configs/research/event_calendar.json")
 
+    fu = sub.add_parser(
+        "fundamentals",
+        help="build the pre-open fundamentals table (no network)")
+    fu.add_argument("--as-of", default=None,
+                    help="YYYY-MM-DD, the point-in-time date to build FOR. "
+                         "Defaults to the newest bhavcopy on file, because "
+                         "that is the day the scanner can actually run.")
+    fu.add_argument("--filings", default="configs/research/filings")
+    fu.add_argument("--out", default="configs/research/fundamentals")
+    fu.add_argument("--universe", default="configs/bhavcopy",
+                    help="bhavcopy directory; its newest day supplies the "
+                         "symbol list")
+
     rs = sub.add_parser("research", help="per-symbol research (SLOW)")
     rs.add_argument("symbols", nargs="+")
     rs.add_argument("--out", default="configs/research")
@@ -274,6 +363,12 @@ def main(argv: list[str] | None = None) -> int:
     rs.add_argument("--force", action="store_true")
 
     args = p.parse_args(argv)
+
+    # Handled before any session exists: this command reads only local files,
+    # and building a throttled HTTP client for it would imply otherwise.
+    if args.cmd == "fundamentals":
+        return _cmd_fundamentals(args)
+
     session = NseSession()
 
     if args.cmd == "events":
@@ -311,16 +406,22 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        n = refresh_research(session, list(args.symbols), Path(args.out),
-                             kinds=kinds, with_xbrl=not args.no_xbrl,
-                             since=since, force=args.force)
+        # This is an EXIT CODE, not a record count. refresh_research already
+        # prints its own per-symbol summary, and it returns 1 when any symbol
+        # failed and 2 when NSE rate-limited. An earlier version of this
+        # function read it as a count, printed "refreshed 0 record(s)" after
+        # storing 35 filings, and - the part that mattered - returned 0
+        # regardless, so a scheduled run reported success on a run where
+        # symbols had failed. That is exactly what refresh_research's own
+        # docstring says the non-zero exit exists to prevent.
+        return refresh_research(session, list(args.symbols), Path(args.out),
+                                kinds=kinds, with_xbrl=not args.no_xbrl,
+                                since=since, force=args.force)
     except RateLimited as exc:
         # Exit 2, distinct from a real failure: "come back later" and
         # "something is broken" need different responses from a scheduler.
         print(f"NSE is rate-limiting, stopping early: {exc}")
         return 2
-    print(f"refreshed {n} record(s)")
-    return 0
 
 
 if __name__ == "__main__":
