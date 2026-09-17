@@ -432,6 +432,17 @@ def _check_reference(df: pd.DataFrame, rep: QualityReport,
     if "close" not in reference.columns:
         rep.checks_skipped[Check.CROSS_SOURCE] = f"{name} has no close column"
         return
+    if reference.empty:
+        # The second source has nothing for THIS symbol. That is not a
+        # disagreement and it is not an agreement - it is an absence, and
+        # against BSE it is the COMMON case: only about a third of NSE names
+        # clear the liquidity gate that makes a BSE close meaningful (see
+        # desk/marketdata/crosscheck.py). Reporting it as a warning would
+        # bury the real ones; reporting nothing would let "checked" mean
+        # "we looked and there was nothing to look at".
+        rep.checks_skipped[Check.CROSS_SOURCE] = (
+            f"{name} has no rows for this symbol")
+        return
 
     rep.checks_run.append(Check.CROSS_SOURCE)
     joined = df[["close"]].join(reference[["close"]], how="inner",
@@ -493,7 +504,24 @@ def check_panel(df: pd.DataFrame, *, by: str | None = None,
                 a for a in actions if getattr(a, "symbol", None) in (None, name)
             ] if named else []
         if reference is not None and named:
-            per_symbol["reference"] = reference
+            # THE SAME BUG THE COMMENT ABOVE DESCRIBES, which was fixed for
+            # actions and left in place for the reference: forwarding one
+            # shared frame to every group compares this symbol's closes
+            # against whatever the reference happens to hold on those dates,
+            # including another company's. It stayed invisible only because
+            # no second source existed to pass - desk/marketdata/crosscheck.py
+            # now produces a multi-symbol reference, so it would have fired
+            # on the first real call.
+            #
+            # A reference with no symbol column is a single-instrument frame
+            # and is forwarded whole, which is the original contract.
+            ref_col = _symbol_column(reference)
+            if ref_col is not None:
+                per_symbol["reference"] = (
+                    reference[reference[ref_col].astype(str) == name]
+                    .drop(columns=[ref_col]))
+            else:
+                per_symbol["reference"] = reference
 
         rep = check(group.drop(columns=[col]), symbol=name, **per_symbol)
         if not named:

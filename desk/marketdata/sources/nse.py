@@ -39,7 +39,6 @@ import http.cookiejar
 import io
 import json
 import math
-import math
 import re
 import time
 import urllib.error
@@ -53,6 +52,10 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from desk.marketdata.corporate_actions import ActionType, CorporateAction
+# Defined in sources/errors.py so BSE can raise the SAME types rather than a
+# parallel pair every caller would have to catch as a tuple. Re-exported here
+# by plain import, so existing `from ...sources.nse import SourceError` works.
+from desk.marketdata.sources.errors import RateLimited, SourceError
 from desk.marketdata.text import ABSENT, as_float, as_text, text_or_none
 
 BASE = "https://www.nseindia.com"
@@ -103,19 +106,9 @@ BROWSER_HEADERS = {
 EQUITY_SEGMENT = "CM"
 
 
-class SourceError(Exception):
-    """The source could not be reached or returned something unusable."""
-
-
 # ===========================================================================
 # Fetching - the only part that needs a network
 # ===========================================================================
-
-class RateLimited(SourceError):
-    """NSE refused us for asking too often. Distinct from every other
-    SourceError because it is the one the caller should WAIT on and retry,
-    rather than stop and tell a human."""
-
 
 class NseSession:
     """A cookie-bearing, self-throttling session. Construct once and reuse.
@@ -310,6 +303,20 @@ class NseSession:
         """
         url = f"{ARCHIVES}/products/content/sec_bhavdata_full_{day.strftime('%d%m%Y')}.csv"
         return self._fetch_raw(url)
+
+    def fetch_equity_master(self) -> bytes:
+        """The listed-equity master: SYMBOL, company name, series, ISIN.
+
+        Fetched for ONE reason: the daily bhavcopy has no ISIN column, and
+        ISIN is the only trustworthy key for joining NSE to BSE. Company
+        names differ between the exchanges and tickers are not guaranteed to
+        agree, so without this file a cross-source check has nothing sound to
+        join on. See desk/marketdata/isin.py.
+
+        Same archives host and one request for the whole universe, exactly
+        like fetch_bhavcopy.
+        """
+        return self._fetch_raw(f"{ARCHIVES}/content/equities/EQUITY_L.csv")
 
     # -- the two JSON endpoints we actually use ----------------------------
 
