@@ -185,6 +185,31 @@ class Stage2Result:
         return "\n".join(lines)
 
 
+#: Fundamental factors. NOT in DEFAULT_FACTORS: they only work when a
+#: fundamentals table is supplied, and a factor that silently scores NaN for
+#: the whole universe is worse than one that is absent - it dilutes every
+#: other factor's weight while contributing nothing.
+FUNDAMENTAL_FACTORS: tuple[FactorSpec, ...] = (
+    FactorSpec(
+        "revenue_growth", "revenue_growth_yoy_pct", +1, 1.0,
+        rationale="Year-on-year revenue growth for the latest quarter, "
+                  "compared like-for-like against the same quarter a year "
+                  "earlier and the same reporting nature.",
+    ),
+    FactorSpec(
+        "profit_growth", "profit_growth_yoy_pct", +1, 1.0,
+        rationale="Year-on-year profit growth, same comparison basis.",
+    ),
+    FactorSpec(
+        "margin_trend", "margin_change_pp", +1, 0.75,
+        rationale="Change in net margin in percentage points. Direction "
+                  "matters more than level - a 4% margin improving beats an "
+                  "18% margin eroding, and the level differs by industry in "
+                  "ways a cross-sectional rank cannot see.",
+    ),
+)
+
+
 def run_stage2(
     stage1: Stage1Result,
     *,
@@ -193,6 +218,9 @@ def run_stage2(
     min_factors: int = 3,
     extended_penalty: float = 15.0,
     flagged_only: bool = True,
+    fundamentals: "pd.DataFrame | None" = None,
+    max_filing_age_days: int | None = None,
+    min_net_margin_pct: float | None = None,
 ) -> Stage2Result:
     """Rank Stage 1's output into an explained shortlist.
 
@@ -215,6 +243,14 @@ def run_stage2(
     src = stage1.flagged if flagged_only else stage1.features
     universe_in = len(src)
     excluded: dict[str, int] = {}
+    fundamental_notes: list[str] = []
+
+    if fundamentals is not None and not src.empty:
+        src, excluded, fundamental_notes = _apply_fundamentals(
+            src, fundamentals, excluded,
+            max_filing_age_days=max_filing_age_days,
+            min_net_margin_pct=min_net_margin_pct,
+        )
 
     if universe_in == 0:
         return Stage2Result(
@@ -303,11 +339,61 @@ def run_stage2(
     out = out[lead + [c for c in out.columns if c not in lead]]
     out = out.sort_values("score", ascending=False)
 
-    return Stage2Result(
+    result = Stage2Result(
         as_of=stage1.as_of, regime=regime, ranked=out, factors=tuple(active),
         silenced=silenced, universe_in=universe_in, universe_out=len(out),
         excluded=excluded,
     )
+    result.unavailable.extend(fundamental_notes)
+    return result
+
+
+def _apply_fundamentals(src, fundamentals, excluded, *,
+                        max_filing_age_days, min_net_margin_pct):
+    """Join the fundamentals table on, then apply the HARD filters.
+
+    Ranked fundamentals and hard filters are deliberately different
+    mechanisms. A FactorSpec ranks and weights into a composite score; a
+    filter removes a name from consideration. "Its margin ranks in the bottom
+    decile" and "it is loss-making" are not the same statement, and collapsing
+    them into one score lets a strong technical setup outvote a company that
+    should not be on the list at all.
+
+    "No data" and "fails the filter" are counted SEPARATELY. That is R3's
+    stated requirement and it falls out of Stage 2's existing `excluded`
+    convention for free - two distinct reason strings, two distinct counts.
+    """
+    notes: list[str] = []
+    joined = src.join(fundamentals, how="left")
+
+    have = joined["period_end"].notna() if "period_end" in joined else None
+    if have is not None:
+        missing = int((~have).sum())
+        if missing:
+            notes.append(
+                f"{missing} of {len(joined)} candidates have no filing on "
+                f"file, so every fundamental filter below was SKIPPED for "
+                f"them - they were not checked, not cleared."
+            )
+
+    if max_filing_age_days is not None and "days_since_filing" in joined:
+        # A stale filing is not a bad filing, but a company that has not
+        # reported in eight months is a different risk from one that reported
+        # last week, and the numbers behind any filter are that old too.
+        stale = joined["days_since_filing"] > max_filing_age_days
+        n = int(stale.fillna(False).sum())
+        if n:
+            excluded[f"last filing older than {max_filing_age_days} days"] = n
+            joined = joined[~stale.fillna(False)]
+
+    if min_net_margin_pct is not None and "net_margin_pct" in joined:
+        thin = joined["net_margin_pct"] < min_net_margin_pct
+        n = int(thin.fillna(False).sum())
+        if n:
+            excluded[f"net margin below {min_net_margin_pct}%"] = n
+            joined = joined[~thin.fillna(False)]
+
+    return joined, excluded, notes
 
 
 def _empty_ranked(factors) -> pd.DataFrame:
