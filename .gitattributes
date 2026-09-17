@@ -1,3 +1,10 @@
 * text=auto eol=lf
 *.png binary
 *.parquet binary
+
+# Fixtures captured from live endpoints are EVIDENCE of what a server
+# actually sent. Normalising their line endings rewrites that evidence, and
+# desk/tests/fixtures/rss_business-standard-companies.xml is kept precisely
+# BECAUSE it is malformed as published. Listed last so it wins over the
+# text=auto rule above.
+desk/tests/fixtures/** -text
