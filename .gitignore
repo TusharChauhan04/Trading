@@ -31,6 +31,12 @@ web/dist/
 # correctness-critical, stable, and small enough to diff.
 configs/bhavcopy/
 
+# The event calendar is refetched daily and is treated as STALE after three
+# days, so a committed copy is worthless within a week and dirties the repo
+# on every refresh. Same reasoning as bhavcopy. Its absence is handled: the
+# plan says the earnings gate did not run and names the command to fix it.
+configs/research/
+
 # Local, machine-specific
 *.tmp
 *.json.tmp
