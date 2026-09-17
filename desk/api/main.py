@@ -33,7 +33,12 @@ from desk.registry.fleet import fleet_status
 from desk.risk.engine import Portfolio, Position, RiskConfig, Sizing, size_position
 from desk.scanner.stage0 import run_stage0
 from desk.scanner.stage1 import REQUIRED_BARS, Stage1Result, run_stage1
+from desk.llm.budget import CostMeter
+from desk.llm.client import MeteredClient
+from desk.llm.providers.openai import OpenAIProvider
+from desk.research.events import load_calendar
 from desk.scanner.stage2 import run_stage2
+from desk.scanner.stage3 import run_stage3
 from desk.scanner.stage4 import run_stage4
 from desk.store import BarStore, StoreError
 from desk.strategies.catalog import catalog_status, eligible
@@ -329,6 +334,47 @@ def _action_caveat(unchecked: list[str], total: int) -> list[str]:
             f"corporate-action file, so an unadjusted split or bonus inside "
             f"the lookback window would not have been caught for them. Run "
             f"'python -m desk.marketdata.refresh actions <SYMBOLS>'."]
+
+
+def _event_calendar(as_of: date):
+    """(calendar, caveats) for the earnings gate.
+
+    Returns None for the calendar in BOTH the missing and the stale case,
+    but with different caveats, because they are different failures. A
+    missing calendar means nobody fetched it. A stale one means somebody did
+    and then stopped, which is more dangerous: a calendar fetched two weeks
+    ago answers "nothing scheduled" for every company that has announced a
+    board meeting since, and the gate would report a clean check. Staleness
+    is a FALSE CLEAR, so a stale file is treated as absent rather than used.
+    """
+    stored = load_calendar(CONFIGS / "research" / "event_calendar.json",
+                           as_of=as_of)
+    if stored is None:
+        return None, ["no event calendar on file, so the earnings gate did "
+                      "NOT run - a name reporting inside the holding window "
+                      "would not have been caught. Run 'python -m "
+                      "desk.research.refresh events'."]
+    if stored.stale:
+        return None, [stored.caveat]
+    return stored.calendar, []
+
+
+def _llm_client():
+    """A metered client, or None when Stage 3 cannot run.
+
+    None is the normal state today: no key is configured. Stage 3 reports
+    itself as not run and the shortlist passes through untouched, which is
+    why /plan/today keeps working unchanged. Nothing here can spend money
+    without OPENAI_API_KEY being set deliberately, and even then only up to
+    the ceiling in desk.llm.budget - which is still a placeholder awaiting a
+    real number.
+    """
+    provider = OpenAIProvider()
+    if not provider.configured:
+        return None
+    return MeteredClient(provider=provider,
+                         meter=CostMeter(ledger_path=CONFIGS / "llm"
+                                         / "spend.ledger.jsonl"))
 
 
 def _stage1_for(target: date, *, lookback: int, min_price: float,
@@ -879,17 +925,25 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
         actions, unchecked = _actions_for(survivors)
         stage1 = run_stage1(history, as_of=as_of, actions=actions)
         stage2 = run_stage2(stage1, regime=regime)
-        stage4 = run_stage4(stage2, stage1,
+
+        # R4's event gate and R7's narrative pass. Both are OPTIONAL by
+        # construction and both declare themselves when absent, so this
+        # endpoint answers every day whether or not a calendar has been
+        # refreshed and whether or not an LLM key is configured.
+        events, event_caveats = _event_calendar(as_of)
+        stage3 = run_stage3(stage2, client=_llm_client(), events=events)
+        stage4 = run_stage4(stage3.narrow(stage2), stage1,
                             cfg=RiskConfig(capital=capital),
-                            portfolio=portfolio,
+                            portfolio=portfolio, events=events,
                             max_trades=max_trades, today=_today_ist())
     except (ValueError, StoreError) as exc:
         log.warning("scan for %s could not run: %s", as_of, exc)
         return None
 
-    log.info("plan %s regime=%s: %d -> %d -> %d -> %d -> %d trades",
+    log.info("plan %s regime=%s: %d -> %d -> %d -> %d -> %d -> %d trades",
              as_of, regime.value, stage0.universe_in, stage0.universe_out,
-             len(stage1.flagged), stage2.universe_out, len(stage4.approved))
+             len(stage1.flagged), stage2.universe_out, len(stage3.kept),
+             len(stage4.approved))
 
     return ScanSummary(
         universe_scanned=stage0.universe_in,
@@ -900,7 +954,7 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
         trades=stage4.approved,
         no_trade_reason=stage4.no_trade_reason(),
         caveats=[*stage0.caveats, *stage1.unavailable, *stage2.unavailable,
-                 *stage4.unavailable,
+                 *stage3.unavailable, *stage4.unavailable, *event_caveats,
                  *_action_caveat(unchecked, len(survivors))],
         coverage_note=stage1.coverage.describe(),
     )

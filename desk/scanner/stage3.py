@@ -151,6 +151,23 @@ class Stage3Result:
     def is_empty(self) -> bool:
         return not self.kept
 
+    def narrow(self, stage2: Stage2Result) -> Stage2Result:
+        """The same Stage 2 result with only the survivors in it.
+
+        This is how Stage 3 reaches Stage 4 - and the ONLY way it can. Stage
+        4 keeps taking a Stage2Result and stays a pure function of scores it
+        did not compute; all it sees is a shorter ranking. Nothing about a
+        score, a factor weight or a sizing input is touched, so there is no
+        route by which a narrative judgement could loosen a risk rule.
+
+        Order and every column are preserved, so Stage 2's `explain()` still
+        works on anything that survives and the audit trail is unbroken.
+        """
+        from dataclasses import replace
+        keep = [s for s in stage2.ranked.index if s in set(self.kept)]
+        return replace(stage2, ranked=stage2.ranked.loc[keep],
+                       universe_out=len(keep))
+
     def summary(self) -> str:
         head = (f"Stage 3: {self.considered} considered -> {len(self.kept)} "
                 f"kept ({self.as_of})")

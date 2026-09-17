@@ -233,3 +233,95 @@ def _research_to_json(rec) -> dict:
         out[field_name] = v.isoformat() if hasattr(v, "isoformat") else v
     return out
 
+
+
+# ===========================================================================
+# The command line
+# ===========================================================================
+#
+# refresh_research() existed with no way to invoke it - the same defect the
+# 2026-09-16 recovery found in desk/marketdata/refresh.py, where the whole
+# `bhavcopy` subcommand was missing from argparse while the function it
+# called was fully written and fully tested. A function with no entry point
+# looks finished from inside the test suite and is unreachable in practice.
+#
+# `events` is here rather than in RESEARCH_KINDS on purpose: the other five
+# are PER-SYMBOL and cost ~1,598 requests each, while the event calendar is
+# ONE market-wide request covering every listed company. Putting it in the
+# per-symbol loop would refetch the same market-wide file once per symbol.
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    p = argparse.ArgumentParser(
+        prog="desk.research.refresh",
+        description="Fetch exchange-disclosed research from NSE.")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    ev = sub.add_parser(
+        "events",
+        help="the market-wide corporate event calendar (ONE request)")
+    ev.add_argument("--out", default="configs/research/event_calendar.json")
+
+    rs = sub.add_parser("research", help="per-symbol research (SLOW)")
+    rs.add_argument("symbols", nargs="+")
+    rs.add_argument("--out", default="configs/research")
+    rs.add_argument("--kinds", default=",".join(RESEARCH_KINDS))
+    rs.add_argument("--no-xbrl", action="store_true",
+                    help="skip the results documents - measured 26h vs 2.2h "
+                         "for a full-universe pass")
+    rs.add_argument("--since", default=None, help="YYYY-MM-DD")
+    rs.add_argument("--force", action="store_true")
+
+    args = p.parse_args(argv)
+    session = NseSession()
+
+    if args.cmd == "events":
+        from desk.research.events import save_calendar
+        from desk.research.sources.nse import parse_event_calendar
+        try:
+            events = parse_event_calendar(
+                session.fetch_with_retry(session.fetch_event_calendar))
+        except RateLimited as exc:
+            print(f"NSE is rate-limiting: {exc}")
+            return 2
+        except SourceError as exc:
+            print(f"could not fetch the event calendar: {exc}")
+            return 1
+        n = save_calendar(events, Path(args.out))
+        print(f"wrote {n} dated event(s) to {args.out}")
+        if not n:
+            # An empty calendar parses, saves, and then answers "nothing
+            # scheduled" for the entire market. It must not look like success.
+            print("WARNING: the calendar is EMPTY. The earnings gate will "
+                  "clear every name. Check the endpoint before relying on "
+                  "today's plan.")
+            return 1
+        return 0
+
+    kinds = tuple(k.strip() for k in args.kinds.split(",") if k.strip())
+    unknown = [k for k in kinds if k not in RESEARCH_KINDS]
+    if unknown:
+        print(f"unknown kind(s): {unknown}. Known: {list(RESEARCH_KINDS)}")
+        return 1
+    try:
+        since = date.fromisoformat(args.since) if args.since else None
+    except ValueError:
+        print(f"--since must be YYYY-MM-DD, got {args.since!r}")
+        return 1
+
+    try:
+        n = refresh_research(session, list(args.symbols), Path(args.out),
+                             kinds=kinds, with_xbrl=not args.no_xbrl,
+                             since=since, force=args.force)
+    except RateLimited as exc:
+        # Exit 2, distinct from a real failure: "come back later" and
+        # "something is broken" need different responses from a scheduler.
+        print(f"NSE is rate-limiting, stopping early: {exc}")
+        return 2
+    print(f"refreshed {n} record(s)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
