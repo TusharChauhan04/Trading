@@ -26,6 +26,7 @@ from desk.marketdata.calendar_in import (
 )
 from desk.marketdata.corporate_actions import ActionLoadError, load_actions
 from desk.marketdata.providers import provider_status
+from desk.marketdata.sectors import SectorMap
 from desk.marketdata.symbols import SymbolError, Symbol
 from desk.plan.build import build_plan
 from desk.plan.models import DailyPlan, ScanSummary
@@ -36,6 +37,7 @@ from desk.scanner.stage1 import REQUIRED_BARS, Stage1Result, run_stage1
 from desk.llm.budget import CostMeter
 from desk.llm.client import MeteredClient
 from desk.llm.providers.openai import OpenAIProvider
+from desk.regime.engine import compute_regime
 from desk.research.events import load_calendar
 from desk.research.fundamentals import FundamentalsCache
 from desk.scanner.stage2 import run_stage2
@@ -335,6 +337,31 @@ def _action_caveat(unchecked: list[str], total: int) -> list[str]:
             f"corporate-action file, so an unadjusted split or bonus inside "
             f"the lookback window would not have been caught for them. Run "
             f"'python -m desk.marketdata.refresh actions <SYMBOLS>'."]
+
+
+def _regime_caveats(measured) -> list[str]:
+    """What the measured regime could NOT see.
+
+    A regime that is only partly measured must say so, or a plan reports
+    "range" with the same confidence whether four dimensions were computed
+    or one. `RegimeState.is_measured` already draws that line; this turns
+    it into something the plan prints.
+    """
+    if measured is None:
+        return []
+    out = []
+    if not measured.is_measured:
+        unknown = [k for k, v in measured.sources.items()
+                   if str(v).startswith("not measured")]
+        out.append(
+            f"the market regime is only PARTLY measured - "
+            f"{', '.join(unknown) or 'some dimensions'} could not be "
+            f"computed, so '{measured.label.value}' rests on the "
+            f"dimensions that could.")
+    for line in measured.explain():
+        if line.startswith("leading:"):
+            out.append("regime " + line)
+    return out
 
 
 def _event_calendar(as_of: date):
@@ -956,6 +983,20 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
         survivors = stage0.survivors["symbol"].tolist()
         history = store.history(as_of=as_of, lookback=lookback,
                                 symbols=survivors, columns=list(REQUIRED_BARS))
+
+        # MEASURE the regime rather than being told it, unless a caller
+        # deliberately overrode it. A hand-chosen regime is worse than
+        # none: it silences factors and gates strategies on an opinion,
+        # and the plan then prints that opinion as if it were a finding.
+        # Computed from the SAME history the scan uses, so the breadth
+        # figure and the ranking cannot disagree about what the market did.
+        measured = None
+        if regime is Regime.UNKNOWN:
+            measured = compute_regime(
+                history, as_of=as_of,
+                sectors=SectorMap.load(CONFIGS / "sectors.json"),
+                events=None)
+            regime = measured.label
         actions, unchecked = _actions_for(survivors)
         stage1 = run_stage1(history, as_of=as_of, actions=actions)
 
@@ -1004,7 +1045,8 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
         considered=stage4.considered,
         trades=stage4.approved,
         no_trade_reason=stage4.no_trade_reason(),
-        caveats=[*stage0.caveats, *stage1.unavailable, *stage2.unavailable,
+        caveats=[*_regime_caveats(measured),
+                 *stage0.caveats, *stage1.unavailable, *stage2.unavailable,
                  *stage3.unavailable, *stage4.unavailable, *event_caveats,
                  *fundamental_caveats,
                  *_action_caveat(unchecked, len(survivors))],

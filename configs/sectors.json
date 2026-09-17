@@ -1,0 +1,2762 @@
+{
+ "as_of": "2026-09-18",
+ "indices": {
+  "360ONE": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "3MINDIA": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "AADHARHFC": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "AARTIIND": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "AAVAS": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ABB": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "ABBOTINDIA": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "ABCAPITAL": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "ABDL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ABFRL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ABLBL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ABREL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ABSLAMC": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ACC": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "ACE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ACMESOLAR": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ACUTAAS": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ADANIENSOL": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "ADANIENT": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "ADANIGREEN": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "ADANIPORTS": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "ADANIPOWER": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "AEGISLOG": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "AEGISVOPAK": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "AFCONS": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "AFFLE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "AIAENG": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "AIIL": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "AJANTPHARM": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "ALKEM": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "AMBER": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "AMBUJACEM": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "ANANDRATHI": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ANANTRAJ": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ANGELONE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ANTHEM": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "ANURAS": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "APARINDS": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "APLAPOLLO": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "APOLLOHOSP": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "APOLLOTYRE": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "APTUS": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ARE&M": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ASAHIINDIA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ASHOKLEY": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "ASIANPAINT": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "ASTERDM": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ASTRAL": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "ATGL": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "ATHERENERG": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ATUL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "AUBANK": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "AUROPHARMA": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "AWL": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "AXISBANK": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "BAJAJ-AUTO": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "BAJAJFINSV": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "BAJAJHFL": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "BAJAJHLDNG": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "BAJFINANCE": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "BALKRISIND": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "BALRAMCHIN": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "BANDHANBNK": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "BANKBARODA": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "BANKINDIA": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "BATAINDIA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "BAYERCROP": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "BBTC": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "BDL": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "BEL": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "BELRISE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "BEML": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "BERGEPAINT": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "BHARATFORG": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "BHARTIARTL": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "BHARTIHEXA": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "BHEL": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "BIKAJI": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "BIOCON": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "BLS": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "BLUEDART": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "BLUEJET": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "BLUESTARCO": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "BOSCHLTD": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "BPCL": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "BRIGADE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "BRITANNIA": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "BSE": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "BSOFT": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CAMS": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CANBK": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "CANFINHOME": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CANHLIFE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CAPLIPOINT": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CARBORUNIV": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CARTRADE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CASTROLIND": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CCL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CDSL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CEATLTD": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CEMPRO": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CENTRALBK": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CESC": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CGCL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CGPOWER": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "CHALET": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CHAMBLFERT": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CHENNPETRO": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CHOICEIN": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CHOLAFIN": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "CHOLAHLDNG": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CIEINDIA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CIPLA": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "CLEAN": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "COALINDIA": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "COCHINSHIP": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "COFORGE": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "COHANCE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "COLPAL": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "CONCOR": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "CONCORDBIO": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "COROMANDEL": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "CPPLUS": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CRAFTSMAN": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CREDITACC": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CRISIL": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "CROMPTON": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CUB": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "CUMMINSIND": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "CYIENT": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "DABUR": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "DALBHARAT": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "DATAPATTNS": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "DCMSHRIRAM": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "DEEPAKFERT": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "DEEPAKNTR": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "DELHIVERY": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "DEVYANI": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "DIVISLAB": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "DIXON": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "DLF": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "DMART": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "DOMS": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "DRREDDY": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "DUMMYHEG": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ECLERX": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "EICHERMOT": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "EIDPARRY": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "EIHOTEL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ELECON": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ELGIEQUIP": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "EMAMILTD": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "EMCURE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "EMMVEE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ENDURANCE": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "ENGINERSIN": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ENRIN": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "ERIS": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ESCORTS": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "ETERNAL": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "EXIDEIND": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "FACT": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "FEDERALBNK": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "FINCABLES": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "FIRSTCRY": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "FIVESTAR": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "FLUOROCHEM": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "FORCEMOT": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "FORTIS": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "FSL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "GABRIEL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "GAIL": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "GALLANTT": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "GESHIP": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "GICRE": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "GILLETTE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "GLAND": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "GLAXO": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "GLENMARK": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "GMDCLTD": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "GMRAIRPORT": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "GODFRYPHLP": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "GODIGIT": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "GODREJCP": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "GODREJIND": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "GODREJPROP": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "GPIL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "GRANULES": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "GRAPHITE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "GRASIM": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "GRAVITA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "GROWW": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "GRSE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "GVT&D": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "HAL": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "HAVELLS": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "HBLENGINE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "HCLTECH": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "HDBFS": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "HDFCAMC": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "HDFCBANK": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "HDFCLIFE": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "HEG": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "HEROMOTOCO": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "HEXT": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "HFCL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "HINDALCO": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "HINDCOPPER": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "HINDPETRO": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "HINDUNILVR": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "HINDZINC": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "HOMEFIRST": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "HONASA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "HONAUT": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "HSCL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "HUDCO": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "HYUNDAI": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "ICICIAMC": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "ICICIBANK": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "ICICIGI": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "ICICIPRULI": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "IDBI": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "IDEA": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "IDFCFIRSTB": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "IEX": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "IFCI": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "IGIL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "IGL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "IIFL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "IKS": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "INDGN": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "INDHOTEL": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "INDIACEM": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "INDIAMART": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "INDIANB": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "INDIGO": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "INDUSINDBK": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "INDUSTOWER": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "INFY": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "INOXWIND": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "INTELLECT": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "IOB": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "IOC": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "IPCALAB": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "IRB": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "IRCON": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "IRCTC": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "IREDA": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "IRFC": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "ITC": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "ITCHOTELS": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "ITI": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "J&KBANK": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "JAINREC": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "JBMA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "JINDALSAW": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "JINDALSTEL": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "JIOFIN": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "JKCEMENT": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "JKTYRE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "JMFINANCIL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "JPPOWER": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "JSL": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "JSWCEMENT": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "JSWDULUX": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "JSWENERGY": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "JSWINFRA": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "JSWSTEEL": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "JUBLFOOD": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "JUBLINGREA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "JUBLPHARMA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "JWL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "JYOTICNC": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "KAJARIACER": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "KALYANKJIL": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "KARURVYSYA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "KAYNES": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "KEC": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "KEI": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "KFINTECH": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "KIMS": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "KIRLOSENG": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "KOTAKBANK": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "KPIL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "KPITTECH": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "KPRMILL": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "LALPATHLAB": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "LATENTVIEW": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "LAURUSLABS": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "LEMONTREE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "LENSKART": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "LGEINDIA": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "LICHSGFIN": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "LICI": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "LINDEINDIA": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "LLOYDSME": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "LODHA": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "LT": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "LTF": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "LTFOODS": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "LTM": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "LTTS": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "LUPIN": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "M&M": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "M&MFIN": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "MAHABANK": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "MANAPPURAM": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "MANKIND": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "MAPMYINDIA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "MARICO": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "MARUTI": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "MAXHEALTH": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "MAZDOCK": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "MCX": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "MEDANTA": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "MEESHO": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "MFSL": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "MGL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "MINDACORP": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "MMTC": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "MOTHERSON": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "MOTILALOFS": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "MPHASIS": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "MRF": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "MRPL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "MSUMI": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "MUTHOOTFIN": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "NAM-INDIA": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "NATCOPHARM": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "NATIONALUM": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "NAUKRI": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "NAVA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "NAVINFLUOR": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "NBCC": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "NCC": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "NESTLEIND": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "NETWEB": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "NEULANDLAB": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "NEWGEN": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "NH": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "NHPC": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "NIACL": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "NIVABUPA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "NLCINDIA": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "NMDC": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "NSLNISP": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "NTPC": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "NTPCGREEN": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "NUVAMA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "NUVOCO": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "NYKAA": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "OBEROIRLTY": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "OFSS": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "OIL": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "OLAELEC": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "OLECTRA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ONESOURCE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ONGC": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "PAGEIND": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "PARADEEP": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "PATANJALI": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "PAYTM": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "PCBL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "PERSISTENT": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "PETRONET": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "PFC": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "PFIZER": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "PFOCUS": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "PGEL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "PHOENIXLTD": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "PIDILITIND": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "PIIND": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "PINELABS": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "PIRAMALFIN": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "PNB": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "PNBHOUSING": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "POLICYBZR": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "POLYCAB": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "POLYMED": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "POONAWALLA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "POWERGRID": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "POWERINDIA": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "PPLPHARMA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "PREMIERENE": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "PRESTIGE": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "PTCIL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "PVRINOX": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "PWL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "RADICO": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "RAILTEL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "RAINBOW": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "RAMCOCEM": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "RBLBANK": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "RECLTD": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "REDINGTON": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "RELIANCE": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "RHIM": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "RITES": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "RKFORGE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "RPOWER": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "RRKABEL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "RVNL": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "SAGILITY": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SAIL": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "SAILIFE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SAMMAANCAP": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SAPPHIRE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SARDAEN": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SAREGAMA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SBFC": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SBICARD": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "SBILIFE": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "SBIN": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "SCHAEFFLER": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "SCHNEIDER": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SCI": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SHREECEM": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "SHRIRAMFIN": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "SHYAMMETL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SIEMENS": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "SIGNATURE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SJVN": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "SOBHA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SOLARINDS": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "SONACOMS": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SONATSOFTW": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SPLPETRO": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SRF": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "STARHEALTH": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SUMICHEM": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SUNDARMFIN": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "SUNPHARMA": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "SUNTV": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SUPREMEIND": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "SUZLON": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "SWANCORP": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SWIGGY": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "SYNGENE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "SYRMA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "TARIL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "TATACAP": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "TATACHEM": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "TATACOMM": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "TATACONSUM": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "TATAELXSI": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "TATAINVEST": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "TATAPOWER": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "TATASTEEL": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "TATATECH": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "TBOTEK": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "TCS": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "TECHM": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "TECHNOE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "TEGA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "TEJASNET": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "TENNIND": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "THELEELA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "THERMAX": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "TIINDIA": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "TIMKEN": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "TITAGARH": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "TITAN": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "TMCV": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "TMPV": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "TORNTPHARM": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "TORNTPOWER": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "TRAVELFOOD": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "TRENT": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "TRIDENT": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "TRITURBINE": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "TTML": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "TVSMOTOR": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "UBL": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "UCOBANK": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ULTRACEMCO": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "UNIONBANK": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "UNITDSPR": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "UNOMINDA": [
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "UPL": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "URBANCO": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "USHAMART": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "UTIAMC": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "VBL": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "VEDL": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "VIJAYA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "VMM": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "VOLTAS": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "VTL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "WAAREEENER": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "WELCORP": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "WELSPUNLIV": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "WHIRLPOOL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "WIPRO": [
+   "NIFTY 50",
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "WOCKPHARMA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "YESBANK": [
+   "NIFTY 200",
+   "NIFTY 500",
+   "NIFTY MIDCAP 150"
+  ],
+  "ZEEL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ZENSARTECH": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ZENTEC": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ZFCVINDIA": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ],
+  "ZYDUSLIFE": [
+   "NIFTY 100",
+   "NIFTY 200",
+   "NIFTY 500"
+  ],
+  "ZYDUSWELL": [
+   "NIFTY 500",
+   "NIFTY SMALLCAP 250"
+  ]
+ },
+ "industry": {
+  "360ONE": "Financial Services",
+  "3MINDIA": "Diversified",
+  "AADHARHFC": "Financial Services",
+  "AARTIIND": "Chemicals",
+  "AAVAS": "Financial Services",
+  "ABB": "Capital Goods",
+  "ABBOTINDIA": "Healthcare",
+  "ABCAPITAL": "Financial Services",
+  "ABDL": "Fast Moving Consumer Goods",
+  "ABFRL": "Consumer Services",
+  "ABLBL": "Consumer Services",
+  "ABREL": "Realty",
+  "ABSLAMC": "Financial Services",
+  "ACC": "Construction Materials",
+  "ACE": "Capital Goods",
+  "ACMESOLAR": "Power",
+  "ACUTAAS": "Healthcare",
+  "ADANIENSOL": "Power",
+  "ADANIENT": "Metals & Mining",
+  "ADANIGREEN": "Power",
+  "ADANIPORTS": "Services",
+  "ADANIPOWER": "Power",
+  "AEGISLOG": "Oil Gas & Consumable Fuels",
+  "AEGISVOPAK": "Oil Gas & Consumable Fuels",
+  "AFCONS": "Construction",
+  "AFFLE": "Information Technology",
+  "AIAENG": "Capital Goods",
+  "AIIL": "Financial Services",
+  "AJANTPHARM": "Healthcare",
+  "ALKEM": "Healthcare",
+  "AMBER": "Consumer Durables",
+  "AMBUJACEM": "Construction Materials",
+  "ANANDRATHI": "Financial Services",
+  "ANANTRAJ": "Realty",
+  "ANGELONE": "Financial Services",
+  "ANTHEM": "Healthcare",
+  "ANURAS": "Chemicals",
+  "APARINDS": "Capital Goods",
+  "APLAPOLLO": "Capital Goods",
+  "APOLLOHOSP": "Healthcare",
+  "APOLLOTYRE": "Automobile and Auto Components",
+  "APTUS": "Financial Services",
+  "ARE&M": "Automobile and Auto Components",
+  "ASAHIINDIA": "Automobile and Auto Components",
+  "ASHOKLEY": "Capital Goods",
+  "ASIANPAINT": "Consumer Durables",
+  "ASTERDM": "Healthcare",
+  "ASTRAL": "Capital Goods",
+  "ATGL": "Oil Gas & Consumable Fuels",
+  "ATHERENERG": "Automobile and Auto Components",
+  "ATUL": "Chemicals",
+  "AUBANK": "Financial Services",
+  "AUROPHARMA": "Healthcare",
+  "AWL": "Fast Moving Consumer Goods",
+  "AXISBANK": "Financial Services",
+  "BAJAJ-AUTO": "Automobile and Auto Components",
+  "BAJAJFINSV": "Financial Services",
+  "BAJAJHFL": "Financial Services",
+  "BAJAJHLDNG": "Financial Services",
+  "BAJFINANCE": "Financial Services",
+  "BALKRISIND": "Automobile and Auto Components",
+  "BALRAMCHIN": "Fast Moving Consumer Goods",
+  "BANDHANBNK": "Financial Services",
+  "BANKBARODA": "Financial Services",
+  "BANKINDIA": "Financial Services",
+  "BATAINDIA": "Consumer Durables",
+  "BAYERCROP": "Chemicals",
+  "BBTC": "Fast Moving Consumer Goods",
+  "BDL": "Capital Goods",
+  "BEL": "Capital Goods",
+  "BELRISE": "Automobile and Auto Components",
+  "BEML": "Capital Goods",
+  "BERGEPAINT": "Consumer Durables",
+  "BHARATFORG": "Automobile and Auto Components",
+  "BHARTIARTL": "Telecommunication",
+  "BHARTIHEXA": "Telecommunication",
+  "BHEL": "Capital Goods",
+  "BIKAJI": "Fast Moving Consumer Goods",
+  "BIOCON": "Healthcare",
+  "BLS": "Consumer Services",
+  "BLUEDART": "Services",
+  "BLUEJET": "Healthcare",
+  "BLUESTARCO": "Consumer Durables",
+  "BOSCHLTD": "Automobile and Auto Components",
+  "BPCL": "Oil Gas & Consumable Fuels",
+  "BRIGADE": "Realty",
+  "BRITANNIA": "Fast Moving Consumer Goods",
+  "BSE": "Financial Services",
+  "BSOFT": "Information Technology",
+  "CAMS": "Financial Services",
+  "CANBK": "Financial Services",
+  "CANFINHOME": "Financial Services",
+  "CANHLIFE": "Financial Services",
+  "CAPLIPOINT": "Healthcare",
+  "CARBORUNIV": "Capital Goods",
+  "CARTRADE": "Consumer Services",
+  "CASTROLIND": "Oil Gas & Consumable Fuels",
+  "CCL": "Fast Moving Consumer Goods",
+  "CDSL": "Financial Services",
+  "CEATLTD": "Automobile and Auto Components",
+  "CEMPRO": "Construction",
+  "CENTRALBK": "Financial Services",
+  "CESC": "Power",
+  "CGCL": "Financial Services",
+  "CGPOWER": "Capital Goods",
+  "CHALET": "Consumer Services",
+  "CHAMBLFERT": "Chemicals",
+  "CHENNPETRO": "Oil Gas & Consumable Fuels",
+  "CHOICEIN": "Financial Services",
+  "CHOLAFIN": "Financial Services",
+  "CHOLAHLDNG": "Financial Services",
+  "CIEINDIA": "Automobile and Auto Components",
+  "CIPLA": "Healthcare",
+  "CLEAN": "Chemicals",
+  "COALINDIA": "Oil Gas & Consumable Fuels",
+  "COCHINSHIP": "Capital Goods",
+  "COFORGE": "Information Technology",
+  "COHANCE": "Healthcare",
+  "COLPAL": "Fast Moving Consumer Goods",
+  "CONCOR": "Services",
+  "CONCORDBIO": "Healthcare",
+  "COROMANDEL": "Chemicals",
+  "CPPLUS": "Capital Goods",
+  "CRAFTSMAN": "Automobile and Auto Components",
+  "CREDITACC": "Financial Services",
+  "CRISIL": "Financial Services",
+  "CROMPTON": "Consumer Durables",
+  "CUB": "Financial Services",
+  "CUMMINSIND": "Capital Goods",
+  "CYIENT": "Information Technology",
+  "DABUR": "Fast Moving Consumer Goods",
+  "DALBHARAT": "Construction Materials",
+  "DATAPATTNS": "Capital Goods",
+  "DCMSHRIRAM": "Diversified",
+  "DEEPAKFERT": "Chemicals",
+  "DEEPAKNTR": "Chemicals",
+  "DELHIVERY": "Services",
+  "DEVYANI": "Consumer Services",
+  "DIVISLAB": "Healthcare",
+  "DIXON": "Consumer Durables",
+  "DLF": "Realty",
+  "DMART": "Consumer Services",
+  "DOMS": "Fast Moving Consumer Goods",
+  "DRREDDY": "Healthcare",
+  "DUMMYHEG": "Metals & Mining",
+  "ECLERX": "Services",
+  "EICHERMOT": "Automobile and Auto Components",
+  "EIDPARRY": "Fast Moving Consumer Goods",
+  "EIHOTEL": "Consumer Services",
+  "ELECON": "Capital Goods",
+  "ELGIEQUIP": "Capital Goods",
+  "EMAMILTD": "Fast Moving Consumer Goods",
+  "EMCURE": "Healthcare",
+  "EMMVEE": "Capital Goods",
+  "ENDURANCE": "Automobile and Auto Components",
+  "ENGINERSIN": "Construction",
+  "ENRIN": "Capital Goods",
+  "ERIS": "Healthcare",
+  "ESCORTS": "Capital Goods",
+  "ETERNAL": "Consumer Services",
+  "EXIDEIND": "Automobile and Auto Components",
+  "FACT": "Chemicals",
+  "FEDERALBNK": "Financial Services",
+  "FINCABLES": "Capital Goods",
+  "FIRSTCRY": "Consumer Services",
+  "FIVESTAR": "Financial Services",
+  "FLUOROCHEM": "Chemicals",
+  "FORCEMOT": "Automobile and Auto Components",
+  "FORTIS": "Healthcare",
+  "FSL": "Services",
+  "GABRIEL": "Automobile and Auto Components",
+  "GAIL": "Oil Gas & Consumable Fuels",
+  "GALLANTT": "Capital Goods",
+  "GESHIP": "Services",
+  "GICRE": "Financial Services",
+  "GILLETTE": "Fast Moving Consumer Goods",
+  "GLAND": "Healthcare",
+  "GLAXO": "Healthcare",
+  "GLENMARK": "Healthcare",
+  "GMDCLTD": "Metals & Mining",
+  "GMRAIRPORT": "Services",
+  "GODFRYPHLP": "Fast Moving Consumer Goods",
+  "GODIGIT": "Financial Services",
+  "GODREJCP": "Fast Moving Consumer Goods",
+  "GODREJIND": "Diversified",
+  "GODREJPROP": "Realty",
+  "GPIL": "Capital Goods",
+  "GRANULES": "Healthcare",
+  "GRAPHITE": "Capital Goods",
+  "GRASIM": "Construction Materials",
+  "GRAVITA": "Metals & Mining",
+  "GROWW": "Financial Services",
+  "GRSE": "Capital Goods",
+  "GVT&D": "Capital Goods",
+  "HAL": "Capital Goods",
+  "HAVELLS": "Consumer Durables",
+  "HBLENGINE": "Capital Goods",
+  "HCLTECH": "Information Technology",
+  "HDBFS": "Financial Services",
+  "HDFCAMC": "Financial Services",
+  "HDFCBANK": "Financial Services",
+  "HDFCLIFE": "Financial Services",
+  "HEG": "Capital Goods",
+  "HEROMOTOCO": "Automobile and Auto Components",
+  "HEXT": "Information Technology",
+  "HFCL": "Telecommunication",
+  "HINDALCO": "Metals & Mining",
+  "HINDCOPPER": "Metals & Mining",
+  "HINDPETRO": "Oil Gas & Consumable Fuels",
+  "HINDUNILVR": "Fast Moving Consumer Goods",
+  "HINDZINC": "Metals & Mining",
+  "HOMEFIRST": "Financial Services",
+  "HONASA": "Fast Moving Consumer Goods",
+  "HONAUT": "Capital Goods",
+  "HSCL": "Chemicals",
+  "HUDCO": "Financial Services",
+  "HYUNDAI": "Automobile and Auto Components",
+  "ICICIAMC": "Financial Services",
+  "ICICIBANK": "Financial Services",
+  "ICICIGI": "Financial Services",
+  "ICICIPRULI": "Financial Services",
+  "IDBI": "Financial Services",
+  "IDEA": "Telecommunication",
+  "IDFCFIRSTB": "Financial Services",
+  "IEX": "Financial Services",
+  "IFCI": "Financial Services",
+  "IGIL": "Services",
+  "IGL": "Oil Gas & Consumable Fuels",
+  "IIFL": "Financial Services",
+  "IKS": "Information Technology",
+  "INDGN": "Healthcare",
+  "INDHOTEL": "Consumer Services",
+  "INDIACEM": "Construction Materials",
+  "INDIAMART": "Consumer Services",
+  "INDIANB": "Financial Services",
+  "INDIGO": "Services",
+  "INDUSINDBK": "Financial Services",
+  "INDUSTOWER": "Telecommunication",
+  "INFY": "Information Technology",
+  "INOXWIND": "Capital Goods",
+  "INTELLECT": "Information Technology",
+  "IOB": "Financial Services",
+  "IOC": "Oil Gas & Consumable Fuels",
+  "IPCALAB": "Healthcare",
+  "IRB": "Construction",
+  "IRCON": "Construction",
+  "IRCTC": "Consumer Services",
+  "IREDA": "Financial Services",
+  "IRFC": "Financial Services",
+  "ITC": "Fast Moving Consumer Goods",
+  "ITCHOTELS": "Consumer Services",
+  "ITI": "Telecommunication",
+  "J&KBANK": "Financial Services",
+  "JAINREC": "Metals & Mining",
+  "JBMA": "Automobile and Auto Components",
+  "JINDALSAW": "Capital Goods",
+  "JINDALSTEL": "Metals & Mining",
+  "JIOFIN": "Financial Services",
+  "JKCEMENT": "Construction Materials",
+  "JKTYRE": "Automobile and Auto Components",
+  "JMFINANCIL": "Financial Services",
+  "JPPOWER": "Power",
+  "JSL": "Metals & Mining",
+  "JSWCEMENT": "Construction Materials",
+  "JSWDULUX": "Consumer Durables",
+  "JSWENERGY": "Power",
+  "JSWINFRA": "Services",
+  "JSWSTEEL": "Metals & Mining",
+  "JUBLFOOD": "Consumer Services",
+  "JUBLINGREA": "Chemicals",
+  "JUBLPHARMA": "Healthcare",
+  "JWL": "Capital Goods",
+  "JYOTICNC": "Capital Goods",
+  "KAJARIACER": "Consumer Durables",
+  "KALYANKJIL": "Consumer Durables",
+  "KARURVYSYA": "Financial Services",
+  "KAYNES": "Capital Goods",
+  "KEC": "Construction",
+  "KEI": "Capital Goods",
+  "KFINTECH": "Financial Services",
+  "KIMS": "Healthcare",
+  "KIRLOSENG": "Capital Goods",
+  "KOTAKBANK": "Financial Services",
+  "KPIL": "Construction",
+  "KPITTECH": "Information Technology",
+  "KPRMILL": "Textiles",
+  "LALPATHLAB": "Healthcare",
+  "LATENTVIEW": "Information Technology",
+  "LAURUSLABS": "Healthcare",
+  "LEMONTREE": "Consumer Services",
+  "LENSKART": "Consumer Services",
+  "LGEINDIA": "Consumer Durables",
+  "LICHSGFIN": "Financial Services",
+  "LICI": "Financial Services",
+  "LINDEINDIA": "Chemicals",
+  "LLOYDSME": "Metals & Mining",
+  "LODHA": "Realty",
+  "LT": "Construction",
+  "LTF": "Financial Services",
+  "LTFOODS": "Fast Moving Consumer Goods",
+  "LTM": "Information Technology",
+  "LTTS": "Information Technology",
+  "LUPIN": "Healthcare",
+  "M&M": "Automobile and Auto Components",
+  "M&MFIN": "Financial Services",
+  "MAHABANK": "Financial Services",
+  "MANAPPURAM": "Financial Services",
+  "MANKIND": "Healthcare",
+  "MAPMYINDIA": "Information Technology",
+  "MARICO": "Fast Moving Consumer Goods",
+  "MARUTI": "Automobile and Auto Components",
+  "MAXHEALTH": "Healthcare",
+  "MAZDOCK": "Capital Goods",
+  "MCX": "Financial Services",
+  "MEDANTA": "Healthcare",
+  "MEESHO": "Consumer Services",
+  "MFSL": "Financial Services",
+  "MGL": "Oil Gas & Consumable Fuels",
+  "MINDACORP": "Automobile and Auto Components",
+  "MMTC": "Services",
+  "MOTHERSON": "Automobile and Auto Components",
+  "MOTILALOFS": "Financial Services",
+  "MPHASIS": "Information Technology",
+  "MRF": "Automobile and Auto Components",
+  "MRPL": "Oil Gas & Consumable Fuels",
+  "MSUMI": "Automobile and Auto Components",
+  "MUTHOOTFIN": "Financial Services",
+  "NAM-INDIA": "Financial Services",
+  "NATCOPHARM": "Healthcare",
+  "NATIONALUM": "Metals & Mining",
+  "NAUKRI": "Consumer Services",
+  "NAVA": "Power",
+  "NAVINFLUOR": "Chemicals",
+  "NBCC": "Construction",
+  "NCC": "Construction",
+  "NESTLEIND": "Fast Moving Consumer Goods",
+  "NETWEB": "Information Technology",
+  "NEULANDLAB": "Healthcare",
+  "NEWGEN": "Information Technology",
+  "NH": "Healthcare",
+  "NHPC": "Power",
+  "NIACL": "Financial Services",
+  "NIVABUPA": "Financial Services",
+  "NLCINDIA": "Power",
+  "NMDC": "Metals & Mining",
+  "NSLNISP": "Metals & Mining",
+  "NTPC": "Power",
+  "NTPCGREEN": "Power",
+  "NUVAMA": "Financial Services",
+  "NUVOCO": "Construction Materials",
+  "NYKAA": "Consumer Services",
+  "OBEROIRLTY": "Realty",
+  "OFSS": "Information Technology",
+  "OIL": "Oil Gas & Consumable Fuels",
+  "OLAELEC": "Automobile and Auto Components",
+  "OLECTRA": "Automobile and Auto Components",
+  "ONESOURCE": "Healthcare",
+  "ONGC": "Oil Gas & Consumable Fuels",
+  "PAGEIND": "Textiles",
+  "PARADEEP": "Chemicals",
+  "PATANJALI": "Fast Moving Consumer Goods",
+  "PAYTM": "Financial Services",
+  "PCBL": "Chemicals",
+  "PERSISTENT": "Information Technology",
+  "PETRONET": "Oil Gas & Consumable Fuels",
+  "PFC": "Financial Services",
+  "PFIZER": "Healthcare",
+  "PFOCUS": "Media Entertainment & Publication",
+  "PGEL": "Consumer Durables",
+  "PHOENIXLTD": "Realty",
+  "PIDILITIND": "Chemicals",
+  "PIIND": "Chemicals",
+  "PINELABS": "Financial Services",
+  "PIRAMALFIN": "Financial Services",
+  "PNB": "Financial Services",
+  "PNBHOUSING": "Financial Services",
+  "POLICYBZR": "Financial Services",
+  "POLYCAB": "Capital Goods",
+  "POLYMED": "Healthcare",
+  "POONAWALLA": "Financial Services",
+  "POWERGRID": "Power",
+  "POWERINDIA": "Capital Goods",
+  "PPLPHARMA": "Healthcare",
+  "PREMIERENE": "Capital Goods",
+  "PRESTIGE": "Realty",
+  "PTCIL": "Capital Goods",
+  "PVRINOX": "Media Entertainment & Publication",
+  "PWL": "Consumer Services",
+  "RADICO": "Fast Moving Consumer Goods",
+  "RAILTEL": "Telecommunication",
+  "RAINBOW": "Healthcare",
+  "RAMCOCEM": "Construction Materials",
+  "RBLBANK": "Financial Services",
+  "RECLTD": "Financial Services",
+  "REDINGTON": "Services",
+  "RELIANCE": "Oil Gas & Consumable Fuels",
+  "RHIM": "Capital Goods",
+  "RITES": "Construction",
+  "RKFORGE": "Automobile and Auto Components",
+  "RPOWER": "Power",
+  "RRKABEL": "Capital Goods",
+  "RVNL": "Construction",
+  "SAGILITY": "Information Technology",
+  "SAIL": "Metals & Mining",
+  "SAILIFE": "Healthcare",
+  "SAMMAANCAP": "Financial Services",
+  "SAPPHIRE": "Consumer Services",
+  "SARDAEN": "Metals & Mining",
+  "SAREGAMA": "Media Entertainment & Publication",
+  "SBFC": "Financial Services",
+  "SBICARD": "Financial Services",
+  "SBILIFE": "Financial Services",
+  "SBIN": "Financial Services",
+  "SCHAEFFLER": "Automobile and Auto Components",
+  "SCHNEIDER": "Capital Goods",
+  "SCI": "Services",
+  "SHREECEM": "Construction Materials",
+  "SHRIRAMFIN": "Financial Services",
+  "SHYAMMETL": "Capital Goods",
+  "SIEMENS": "Capital Goods",
+  "SIGNATURE": "Realty",
+  "SJVN": "Power",
+  "SOBHA": "Realty",
+  "SOLARINDS": "Chemicals",
+  "SONACOMS": "Automobile and Auto Components",
+  "SONATSOFTW": "Information Technology",
+  "SPLPETRO": "Chemicals",
+  "SRF": "Chemicals",
+  "STARHEALTH": "Financial Services",
+  "SUMICHEM": "Chemicals",
+  "SUNDARMFIN": "Financial Services",
+  "SUNPHARMA": "Healthcare",
+  "SUNTV": "Media Entertainment & Publication",
+  "SUPREMEIND": "Capital Goods",
+  "SUZLON": "Capital Goods",
+  "SWANCORP": "Chemicals",
+  "SWIGGY": "Consumer Services",
+  "SYNGENE": "Healthcare",
+  "SYRMA": "Capital Goods",
+  "TARIL": "Capital Goods",
+  "TATACAP": "Financial Services",
+  "TATACHEM": "Chemicals",
+  "TATACOMM": "Telecommunication",
+  "TATACONSUM": "Fast Moving Consumer Goods",
+  "TATAELXSI": "Information Technology",
+  "TATAINVEST": "Financial Services",
+  "TATAPOWER": "Power",
+  "TATASTEEL": "Metals & Mining",
+  "TATATECH": "Information Technology",
+  "TBOTEK": "Consumer Services",
+  "TCS": "Information Technology",
+  "TECHM": "Information Technology",
+  "TECHNOE": "Construction",
+  "TEGA": "Capital Goods",
+  "TEJASNET": "Telecommunication",
+  "TENNIND": "Automobile and Auto Components",
+  "THELEELA": "Consumer Services",
+  "THERMAX": "Capital Goods",
+  "TIINDIA": "Automobile and Auto Components",
+  "TIMKEN": "Capital Goods",
+  "TITAGARH": "Capital Goods",
+  "TITAN": "Consumer Durables",
+  "TMCV": "Capital Goods",
+  "TMPV": "Automobile and Auto Components",
+  "TORNTPHARM": "Healthcare",
+  "TORNTPOWER": "Power",
+  "TRAVELFOOD": "Consumer Services",
+  "TRENT": "Consumer Services",
+  "TRIDENT": "Textiles",
+  "TRITURBINE": "Capital Goods",
+  "TTML": "Telecommunication",
+  "TVSMOTOR": "Automobile and Auto Components",
+  "UBL": "Fast Moving Consumer Goods",
+  "UCOBANK": "Financial Services",
+  "ULTRACEMCO": "Construction Materials",
+  "UNIONBANK": "Financial Services",
+  "UNITDSPR": "Fast Moving Consumer Goods",
+  "UNOMINDA": "Automobile and Auto Components",
+  "UPL": "Chemicals",
+  "URBANCO": "Consumer Services",
+  "USHAMART": "Capital Goods",
+  "UTIAMC": "Financial Services",
+  "VBL": "Fast Moving Consumer Goods",
+  "VEDL": "Metals & Mining",
+  "VIJAYA": "Healthcare",
+  "VMM": "Consumer Services",
+  "VOLTAS": "Consumer Durables",
+  "VTL": "Textiles",
+  "WAAREEENER": "Capital Goods",
+  "WELCORP": "Capital Goods",
+  "WELSPUNLIV": "Textiles",
+  "WHIRLPOOL": "Consumer Durables",
+  "WIPRO": "Information Technology",
+  "WOCKPHARMA": "Healthcare",
+  "YESBANK": "Financial Services",
+  "ZEEL": "Media Entertainment & Publication",
+  "ZENSARTECH": "Information Technology",
+  "ZENTEC": "Capital Goods",
+  "ZFCVINDIA": "Automobile and Auto Components",
+  "ZYDUSLIFE": "Healthcare",
+  "ZYDUSWELL": "Fast Moving Consumer Goods"
+ }
+}
