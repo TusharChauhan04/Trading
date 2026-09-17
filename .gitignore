@@ -41,3 +41,9 @@ configs/bhavcopy/
 # losing it loses every recorded decision.
 .megamemory/*.db-wal
 .megamemory/*.db-shm
+
+# LLM spend ledger: local operational state, and a record of real money.
+# Not shared, not reconstructible from the repo, and not the same on two
+# machines - committing it would merge two machines' spend into one total.
+configs/llm/
+*.ledger.jsonl
