@@ -173,7 +173,12 @@ def _fetch_one_kind(session: NseSession, base: str, kind: str, out_dir: Path,
     renamed.
     """
     if kind == "filings":
-        filings, undated = parse_results(session.fetch_results(base), base)
+        # Through fetch_with_retry, not bare. A transient DNS failure used
+        # to kill the whole symbol: a Nifty 200 backfill lost 117 of 200 to
+        # `getaddrinfo failed` when the local resolver gave out under ~2,000
+        # sequential lookups. Nothing was wrong with NSE or with the symbol.
+        filings, undated = parse_results(
+            session.fetch_with_retry(session.fetch_results, base), base)
         if since is not None:
             filings = [f for f in filings if f.disclosed_at.date() >= since]
         for f in filings:
@@ -187,8 +192,10 @@ def _fetch_one_kind(session: NseSession, base: str, kind: str, out_dir: Path,
                 if filings_store.has_numbers_for(f):
                     continue
                 try:
-                    periods, _warn = parse_xbrl(session.fetch_xbrl(f.xbrl_url),
-                                                symbol=base)
+                    periods, _warn = parse_xbrl(
+                        session.fetch_with_retry(session.fetch_xbrl,
+                                                 f.xbrl_url),
+                        symbol=base)
                 except (SourceError, XbrlError) as exc:
                     # A filing whose document cannot be read is still a filing.
                     # Store the record without numbers rather than losing the
@@ -205,7 +212,7 @@ def _fetch_one_kind(session: NseSession, base: str, kind: str, out_dir: Path,
         "insider": (session.fetch_insider_deals, parse_insider_deals),
     }[kind]
 
-    records, undated = parse(fetch(base), base)
+    records, undated = parse(session.fetch_with_retry(fetch, base), base)
     if since is not None:
         records = [r for r in records if r.disclosed_at.date() >= since]
     dest = out_dir / kind / f"{base}.json"

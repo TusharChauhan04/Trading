@@ -524,3 +524,84 @@ def test_bhavcopy_empty_file_is_reported():
                   b"TURNOVER_LACS, NO_OF_TRADES, DELIV_QTY, DELIV_PER\n")
     with pytest.raises(SourceError, match="no rows"):
         parse_bhavcopy(header_only)
+
+
+def test_a_dns_failure_is_transient_not_permanent():
+    """REGRESSION. A Nifty 200 backfill lost 117 of 200 symbols to
+    `getaddrinfo failed` - the local resolver giving out under ~2,000
+    sequential lookups, not NSE refusing anything. Classified as a plain
+    SourceError they were never retried and the symbols were abandoned."""
+    import urllib.request
+
+    from desk.marketdata.sources.errors import SourceError, TransientError
+    from desk.marketdata.sources.nse import NseSession
+
+    sess = NseSession(min_interval=0.0)
+    sess._warmed = True
+
+    def _boom(self, req, timeout=None):     # unbound: receives self
+        raise OSError("[Errno 11001] getaddrinfo failed")
+
+    original = urllib.request.OpenerDirector.open
+    try:
+        urllib.request.OpenerDirector.open = _boom
+        with pytest.raises(TransientError):
+            sess._fetch_raw("https://nsearchives.nseindia.com/x.csv")
+    finally:
+        urllib.request.OpenerDirector.open = original
+
+
+def test_a_transient_error_is_still_a_source_error():
+    """A subclass on purpose, so every existing `except SourceError`
+    handler keeps catching it."""
+    from desk.marketdata.sources.errors import SourceError, TransientError
+    assert issubclass(TransientError, SourceError)
+
+
+def test_fetch_with_retry_retries_a_transient_failure():
+    from desk.marketdata.sources.errors import TransientError
+    from desk.marketdata.sources.nse import NseSession
+
+    sess = NseSession(min_interval=0.0)
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) < 3:
+            raise TransientError("getaddrinfo failed")
+        return "ok"
+
+    assert sess.fetch_with_retry(flaky, base_delay=0.0) == "ok"
+    assert len(calls) == 3
+
+
+def test_fetch_with_retry_still_refuses_to_retry_a_real_failure():
+    """A renamed endpoint is not transient; retrying reaches the same
+    wrong answer more slowly while adding load."""
+    from desk.marketdata.sources.errors import SourceError
+    from desk.marketdata.sources.nse import NseSession
+
+    sess = NseSession(min_interval=0.0)
+    calls = []
+
+    def broken():
+        calls.append(1)
+        raise SourceError("endpoint moved")
+
+    with pytest.raises(SourceError):
+        sess.fetch_with_retry(broken, base_delay=0.0)
+    assert len(calls) == 1
+
+
+def test_the_research_refresh_routes_its_fetches_through_the_retry():
+    """Where the 117 were actually lost: neither the results fetch nor the
+    XBRL fetch went through fetch_with_retry, so one DNS blip killed the
+    whole symbol."""
+    import inspect
+
+    from desk.research import refresh as mod
+    # Call sites only - the comment above the fix names it too.
+    code = [ln.split("#")[0] for ln
+            in inspect.getsource(mod._fetch_one_kind).splitlines()]
+    assert sum(1 for ln in code if "fetch_with_retry" in ln) == 3, \
+        "results, xbrl and the per-kind fetch must all be retried"

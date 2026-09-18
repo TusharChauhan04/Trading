@@ -55,7 +55,9 @@ from desk.marketdata.corporate_actions import ActionType, CorporateAction
 # Defined in sources/errors.py so BSE can raise the SAME types rather than a
 # parallel pair every caller would have to catch as a tuple. Re-exported here
 # by plain import, so existing `from ...sources.nse import SourceError` works.
-from desk.marketdata.sources.errors import RateLimited, SourceError
+from desk.marketdata.sources.errors import (
+    RateLimited, SourceError, TransientError,
+)
 from desk.marketdata.text import ABSENT, as_float, as_text, text_or_none
 
 BASE = "https://www.nseindia.com"
@@ -173,18 +175,22 @@ class NseSession:
 
     def fetch_with_retry(self, fn, *args, attempts: int = 4,
                          base_delay: float = 5.0, **kwargs):
-        """Run a fetch, waiting out rate limits with exponential backoff.
+        """Run a fetch, waiting out rate limits and network blips.
 
-        Only `RateLimited` is retried. A renamed endpoint or a malformed
-        payload is not transient, and retrying it four times just means
-        arriving at the same wrong answer more slowly while adding load to
-        the thing that is already refusing us.
+        Retries `RateLimited` and `TransientError` only. A renamed endpoint
+        or a malformed payload is not transient, and retrying it four times
+        just means arriving at the same wrong answer more slowly while
+        adding load to something already refusing us.
+
+        TransientError was added after a Nifty 200 backfill lost 117 of 200
+        symbols to `getaddrinfo failed` - the local resolver giving out
+        under ~2,000 sequential lookups, not NSE refusing anything.
         """
         delay = base_delay
         for attempt in range(1, attempts + 1):
             try:
                 return fn(*args, **kwargs)
-            except RateLimited:
+            except (RateLimited, TransientError):
                 if attempt == attempts:
                     raise
                 time.sleep(delay)
@@ -257,7 +263,11 @@ class NseSession:
                 ) from exc
             raise SourceError(f"{url} returned HTTP {exc.code}") from exc
         except OSError as exc:
-            raise SourceError(f"{url} unreachable: {exc}") from exc
+            # DNS, connection reset, timeout - the NETWORK failed, not the
+            # source. Retryable, and it matters: a full-universe backfill
+            # exhausts the local resolver and loses symbols that would have
+            # worked a second later.
+            raise TransientError(f"{url} unreachable: {exc}") from exc
 
     def get_json(self, path: str) -> Any:
         """`path` is relative to the API root - this method never accepts a

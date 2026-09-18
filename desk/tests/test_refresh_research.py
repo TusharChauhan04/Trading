@@ -35,6 +35,24 @@ class StubSession:
         self.fail = fail
         self.rate_limit_on = rate_limit_on
 
+    def fetch_with_retry(self, fn, *args, attempts: int = 4,
+                         base_delay: float = 5.0, **kwargs):
+        """The real session's retry, without the sleeping.
+
+        The stub lacked this entirely, so routing the research fetches
+        through fetch_with_retry - the fix for a backfill that lost 117 of
+        200 symbols to transient DNS failures - broke 23 tests with
+        AttributeError. A stub that does not implement the interface it
+        stands in for is how a test suite stays green while production
+        breaks, so it accepts the same call shape the real one does.
+
+        It calls through ONCE and never retries, deliberately: retrying
+        inside the stub would swallow the rate-limit and failure paths
+        these tests exist to exercise. The backoff itself is tested
+        against the real NseSession, where it belongs.
+        """
+        return fn(*args, **kwargs)
+
     def _guard(self, kind: str, symbol: str):
         self.calls.append((kind, symbol))
         if symbol == self.rate_limit_on:
