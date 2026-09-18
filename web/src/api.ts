@@ -176,3 +176,131 @@ export const inr = (n: number) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency", currency: "INR", maximumFractionDigits: 0,
   }).format(n);
+
+// --- regime, journal, news, data health ---------------------------------
+//
+// These mirror the endpoints added when the corresponding subsystems were
+// wired. Every one of them carries its own "what could not be measured"
+// field, because a screen that shows only the answer teaches the reader to
+// trust it more than the data supports.
+
+export interface RegimeView {
+  as_of: string;
+  label: string;
+  measured: boolean;
+  risk_off: boolean;
+  trend: string;
+  volatility: string;
+  breadth: string;
+  risk_appetite: string;
+  leading_sectors: string[];
+  lagging_sectors: string[];
+  max_concurrent_positions_hint: number | null;
+  explain: string[];
+  /** Dimension -> what it was computed from. The reason this is arguable. */
+  sources: Record<string, string>;
+  universe: number;
+}
+
+export interface JournalDay {
+  as_of: string;
+  regime?: string;
+  trades?: number;
+  symbols?: string[];
+  no_trade_reason?: string | null;
+  digest?: string;
+  versions?: number;
+  capital?: number;
+  outcomes_recorded?: number;
+  unreadable?: boolean;
+}
+
+export interface JournalIndex {
+  days: JournalDay[];
+  total: number;
+  no_trade_days: number;
+  /** Days with trades whose outcomes were never written down. */
+  unrecorded_outcomes: string[];
+  open_positions: { decision_date: string; symbol: string }[];
+}
+
+export interface JournalEntry {
+  as_of: string;
+  recorded_at: string;
+  regime: string;
+  capital: number;
+  digest: string;
+  amends: string | null;
+  is_no_trade: boolean;
+  no_trade_reason: string | null;
+  funnel: Record<string, number>;
+  trades: {
+    symbol: string; stance: string; entry: number | null; stop: number | null;
+    target: number | null; qty: number; capital_at_risk: number;
+    reward_to_risk: number | null; rationale: string;
+  }[];
+  caveats: string[];
+  coverage_note: string;
+  versions: { digest: string; recorded_at: string; amends: string | null; note: string }[];
+  outcomes: {
+    symbol: string; status: string; exit_price: number | null;
+    exit_date: string | null; exit_reason: string | null;
+    r_multiple: number | null; pnl: number | null;
+  }[];
+}
+
+export interface NewsCluster {
+  title: string;
+  published_at: string;
+  tier: number;
+  weight: number;
+  /** Carried by more than one outlet. Still ONE vote - see the module. */
+  duplicated: boolean;
+  sources: string[];
+  session_phase: string;
+  url: string;
+}
+
+export interface NewsView {
+  available: boolean;
+  fetched_at?: string;
+  age_hours?: number;
+  stale?: boolean;
+  caveat: string | null;
+  feed_caveats?: string[];
+  total?: number;
+  clusters: NewsCluster[];
+}
+
+export interface CrossCheck {
+  as_of: string;
+  checked_at: string;
+  tolerance_pct: number;
+  coverage: Record<string, number | boolean>;
+  disagreements: {
+    symbol: string; nse_close: number; bse_close: number;
+    diff_pct: number; bse_turnover: number;
+  }[];
+}
+
+export interface FundamentalsView {
+  requested_as_of: string;
+  table_as_of: string;
+  staleness_days: number;
+  stale: boolean;
+  caveat: string | null;
+  coverage: Record<string, number>;
+  total: number;
+  rows: Record<string, unknown>[];
+}
+
+export const research = {
+  regime: (day?: string) =>
+    get<RegimeView>(day ? `/regime?day=${day}` : "/regime"),
+  journal: () => get<JournalIndex>("/journal"),
+  journalDay: (day: string) => get<JournalEntry>(`/journal/${day}`),
+  news: () => get<NewsView>("/news"),
+  crosscheck: (day: string) => get<CrossCheck>(`/crosscheck/${day}`),
+  fundamentals: (day?: string) =>
+    get<FundamentalsView>(day ? `/fundamentals?day=${day}` : "/fundamentals"),
+};

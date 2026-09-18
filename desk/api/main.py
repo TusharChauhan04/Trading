@@ -1073,6 +1073,244 @@ def plan_today(
                  max_trades=max_trades, lookback=lookback, portfolio=None)
 
 
+
+# ---------------------------------------------------------------- regime ---
+
+@app.get("/regime", tags=["regime"])
+def regime_today(day: date | None = None,
+                 lookback: int = Query(default=200, ge=60,
+                                       le=LOOKBACK_CEILING)) -> dict:
+    """The market regime as MEASURED, with what each dimension came from.
+
+    Exposed because a regime silences factors and gates strategies, so it
+    has to be arguable rather than asserted. `sources` says what every
+    dimension was computed from and over what window; a dimension with no
+    data reads UNKNOWN and `measured` is false.
+    """
+    target = day or _latest_snapshot_day()
+    if target is None:
+        raise HTTPException(404, "no market snapshot on file - run "
+                                 "'python -m desk.marketdata.refresh bhavcopy'")
+    store = BarStore(CONFIGS / "bhavcopy", calendar=_calendar_or_none())
+    if not store.has(target):
+        raise HTTPException(404, f"no snapshot for {target}")
+
+    stage0 = run_stage0(store.load_day(target))
+    history = store.history(as_of=target, lookback=lookback,
+                            symbols=stage0.survivors["symbol"].tolist(),
+                            columns=list(REQUIRED_BARS))
+    state = compute_regime(history, as_of=target,
+                           sectors=SectorMap.load(CONFIGS / "sectors.json"))
+    return {
+        "as_of": target.isoformat(),
+        "label": state.label.value,
+        "measured": state.is_measured,
+        "risk_off": state.risk_off,
+        "trend": state.trend.value,
+        "volatility": state.volatility.value,
+        "breadth": state.breadth.value,
+        "risk_appetite": state.risk_appetite.value,
+        "leading_sectors": state.leading_sectors,
+        "lagging_sectors": state.lagging_sectors,
+        "max_concurrent_positions_hint": state.max_concurrent_positions_hint,
+        "explain": state.explain(),
+        # The whole point: every number, and where it came from.
+        "sources": state.sources,
+        "universe": len(history.symbols),
+    }
+
+
+# --------------------------------------------------------------- journal ---
+
+@app.get("/journal", tags=["journal"])
+def journal_index() -> dict:
+    """Every day the desk has recorded a decision for.
+
+    `unrecorded` is the journal's own to-do list - days with trades whose
+    outcomes were never written down. Without it, "we have no losing
+    trades" and "nobody recorded how the trades went" look identical, and
+    the flattering reading wins.
+    """
+    store = JournalStore(CONFIGS / "journal")
+    days = store.days()
+    rows = []
+    for d in reversed(days):
+        dec = store.latest(d)
+        if dec is None:
+            rows.append({"as_of": d.isoformat(), "unreadable": True})
+            continue
+        rows.append({
+            "as_of": d.isoformat(),
+            "regime": dec.regime,
+            "trades": len(dec.trades),
+            "symbols": list(dec.symbols),
+            "no_trade_reason": dec.no_trade_reason,
+            "digest": dec.digest(),
+            "versions": len(store.history(d)),
+            "capital": dec.capital,
+            "outcomes_recorded": len(store.outcomes(d)),
+        })
+    return {
+        "days": rows,
+        "total": len(days),
+        "no_trade_days": sum(1 for r in rows if not r.get("trades")),
+        "unrecorded_outcomes": [d.isoformat() for d in store.unrecorded()],
+        "open_positions": [
+            {"decision_date": o.decision_date.isoformat(), "symbol": o.symbol}
+            for o in store.open_positions()
+        ],
+    }
+
+
+@app.get("/journal/{day}", tags=["journal"])
+def journal_day(day: date) -> dict:
+    """One day's decision, its amendment chain, and what came of it."""
+    store = JournalStore(CONFIGS / "journal")
+    dec = store.latest(day)
+    if dec is None:
+        raise HTTPException(404, f"nothing recorded for {day}")
+    return {
+        "as_of": dec.as_of.isoformat(),
+        "recorded_at": dec.recorded_at.isoformat(),
+        "regime": dec.regime,
+        "capital": dec.capital,
+        "digest": dec.digest(),
+        "amends": dec.amends,
+        "is_no_trade": dec.is_no_trade,
+        "no_trade_reason": dec.no_trade_reason,
+        "funnel": {
+            "universe_scanned": dec.universe_scanned,
+            "survived_stage0": dec.survived_stage0,
+            "survived_stage1": dec.survived_stage1,
+            "survived_stage2": dec.survived_stage2,
+            "considered": dec.considered,
+        },
+        "trades": [
+            {"symbol": t.symbol, "stance": t.stance, "entry": t.entry,
+             "stop": t.stop, "target": t.target, "qty": t.qty,
+             "capital_at_risk": t.capital_at_risk,
+             "reward_to_risk": t.reward_to_risk, "rationale": t.rationale}
+            for t in dec.trades
+        ],
+        # Part of the decision, not metadata about it: "why did it pick
+        # that" and "what did it not know" are the same question later.
+        "caveats": list(dec.caveats),
+        "coverage_note": dec.coverage_note,
+        "versions": [
+            {"digest": v.digest(), "recorded_at": v.recorded_at.isoformat(),
+             "amends": v.amends, "note": v.note}
+            for v in store.history(day)
+        ],
+        "outcomes": [
+            {"symbol": o.symbol, "status": o.status, "exit_price": o.exit_price,
+             "exit_date": o.exit_date.isoformat() if o.exit_date else None,
+             "exit_reason": o.exit_reason, "r_multiple": o.r_multiple,
+             "pnl": o.pnl}
+            for o in store.outcomes(day)
+        ],
+    }
+
+
+# ------------------------------------------------------------------ news ---
+
+@app.get("/news", tags=["research"])
+def news_context(limit: int = Query(default=40, ge=1, le=200)) -> dict:
+    """Market-wide headlines, deduplicated by story rather than by outlet.
+
+    NOT per-symbol. Mapping a headline to a ticker is entity resolution,
+    and a wrong mapping attaches someone else's news to your trade. A
+    cluster carries ONE vote weighted by its best source tier, never
+    scaled by how many outlets ran it.
+    """
+    stored = load_news(CONFIGS / "research" / "news.json")
+    if stored is None:
+        return {"available": False, "clusters": [],
+                "caveat": "no news snapshot on file - run 'python -m "
+                          "desk.research.refresh news'"}
+    return {
+        "available": not stored.stale,
+        "fetched_at": stored.fetched_at.isoformat(),
+        "age_hours": round(stored.age_hours, 2),
+        "stale": stored.stale,
+        "caveat": stored.caveat,
+        "feed_caveats": list(stored.caveats),
+        "total": len(stored.clusters),
+        "clusters": [
+            {"title": c.title, "published_at": c.published_at.isoformat(),
+             "tier": c.tier, "weight": c.weight, "duplicated": c.duplicated,
+             "sources": list(c.sources), "session_phase": c.session_phase,
+             "url": c.url}
+            for c in stored.clusters[:limit]
+        ],
+    }
+
+
+# ------------------------------------------------------------ crosscheck ---
+
+@app.get("/crosscheck/{day}", tags=["marketdata"])
+def crosscheck_day(day: date) -> dict:
+    """Did BSE agree with NSE on that day's closes?
+
+    Only about a fifth of NSE symbols are checkable: the rest trade too
+    thinly on BSE for its close to be independent evidence, or are not
+    listed there. Those are reported as NOT CHECKED rather than as
+    agreeing - a thin print that matches is not corroboration.
+    """
+    path = CONFIGS / "crosscheck" / f"{day.isoformat()}.json"
+    if not path.is_file():
+        raise HTTPException(
+            404, f"no cross-check on file for {day} - run 'python -m "
+                 f"desk.marketdata.refresh crosscheck --date {day}'")
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise HTTPException(500, f"cross-check report unreadable: {exc}") from exc
+
+
+# ---------------------------------------------------------- fundamentals ---
+
+@app.get("/fundamentals", tags=["research"])
+def fundamentals_table(day: date | None = None,
+                       limit: int = Query(default=50, ge=1, le=500)) -> dict:
+    """The pre-open fundamentals table, as the scanner sees it.
+
+    Point-in-time by filename: a table built for a later date is never
+    opened for an earlier scan, so what is returned here is what was
+    knowable that morning.
+    """
+    target = day or _latest_snapshot_day()
+    if target is None:
+        raise HTTPException(404, "no market snapshot on file")
+    cached = FundamentalsCache(CONFIGS / "research" / "fundamentals").load(target)
+    if cached is None:
+        raise HTTPException(
+            404, f"no fundamentals table for {target} or earlier - run "
+                 f"'python -m desk.research.refresh fundamentals'")
+    frame = cached.frame.head(limit)
+    return {
+        "requested_as_of": target.isoformat(),
+        "table_as_of": cached.table_as_of.isoformat(),
+        "staleness_days": cached.staleness_days,
+        "stale": cached.stale,
+        "caveat": cached.caveat,
+        "coverage": cached.coverage,
+        "total": len(cached.frame),
+        "rows": [
+            {"symbol": str(sym),
+             **{k: (None if pd.isna(v) else
+                    (v.isoformat() if hasattr(v, "isoformat") else
+                     (float(v) if isinstance(v, (int, float)) else str(v))))
+                for k, v in row.items()}}
+            for sym, row in frame.iterrows()
+        ],
+    }
+
+
+def _latest_snapshot_day() -> date | None:
+    store = BarStore(CONFIGS / "bhavcopy", calendar=_calendar_or_none())
+    days = store.available_days()
+    return days[-1] if days else None
+
 def _plan(*, as_of: date, regime: Regime, capital: float, max_trades: int,
           lookback: int, portfolio: Portfolio | None) -> DailyPlan:
     try:

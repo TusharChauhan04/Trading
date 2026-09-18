@@ -1,13 +1,21 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import DailyPlanView from "./components/DailyPlanView";
+import DataHealthView from "./components/DataHealthView";
 import FleetPanel from "./components/FleetPanel";
+import JournalView from "./components/JournalView";
+import NewsView from "./components/NewsView";
+import RegimeView from "./components/RegimeView";
 import RiskSizer from "./components/RiskSizer";
 import StrategyCatalog from "./components/StrategyCatalog";
 import SymbolLookup from "./components/SymbolLookup";
 
 const TABS = [
   { id: "plan", label: "Today's plan", el: <DailyPlanView /> },
+  { id: "regime", label: "Regime", el: <RegimeView /> },
+  { id: "journal", label: "Journal", el: <JournalView /> },
+  { id: "news", label: "News", el: <NewsView /> },
+  { id: "health", label: "Data health", el: <DataHealthView /> },
   { id: "risk", label: "Risk sizer", el: <RiskSizer /> },
   { id: "strategies", label: "Strategies", el: <StrategyCatalog /> },
   { id: "fleet", label: "Fleet", el: <FleetPanel /> },
