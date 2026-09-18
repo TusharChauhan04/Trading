@@ -1,0 +1,88 @@
+{
+ "as_of": "2026-09-17",
+ "recorded_at": "2026-09-18T16:52:27.956329+05:30",
+ "regime": "range",
+ "trades": [
+  {
+   "symbol": "UNITEDPOLY.NS",
+   "stance": "Buy",
+   "entry": 44.36,
+   "stop": 39.7902975721909,
+   "target": 53.499404855618195,
+   "qty": 218,
+   "capital_at_risk": 996.2,
+   "rationale": "Stage 2 score 95.0; unusual volume; near 52-week high; stop 2.0x ATR (5.2%), target 2.0R | R:R 2.00 | NOT CHECKED: slippage: no estimate supplied; correlation: no cluster supplied, so only the sector cap applied",
+   "supporting": [
+    "scanner-stage2"
+   ],
+   "dissenting": []
+  },
+  {
+   "symbol": "PFOCUS.NS",
+   "stance": "Buy",
+   "entry": 334.95,
+   "stop": 306.0587588512013,
+   "target": 392.7324822975974,
+   "qty": 34,
+   "capital_at_risk": 982.3,
+   "rationale": "Stage 2 score 91.0; unusual volume; stop 2.0x ATR (4.3%), target 2.0R | R:R 2.00 | NOT CHECKED: slippage: no estimate supplied; correlation: no cluster supplied, so only the sector cap applied",
+   "supporting": [
+    "scanner-stage2"
+   ],
+   "dissenting": []
+  },
+  {
+   "symbol": "RIR.NS",
+   "stance": "Buy",
+   "entry": 197.63,
+   "stop": 173.79290061924752,
+   "target": 245.30419876150495,
+   "qty": 41,
+   "capital_at_risk": 977.32,
+   "rationale": "Stage 2 score 89.9; unusual volume; unusual move; stop 2.0x ATR (6.0%), target 2.0R | R:R 2.00 | NOT CHECKED: slippage: no estimate supplied; correlation: no cluster supplied, so only the sector cap applied",
+   "supporting": [
+    "scanner-stage2"
+   ],
+   "dissenting": []
+  }
+ ],
+ "no_trade_reason": null,
+ "universe_scanned": 3483,
+ "survived_stage0": 1548,
+ "survived_stage1": 502,
+ "survived_stage2": 502,
+ "considered": 3,
+ "caveats": [
+  "0 of 6 strategies have cleared walk-forward; 14 known defects are still on the books.",
+  "Strategy library needs re-running on the corrected strategy_lib.",
+  "regime leading: Healthcare, Oil Gas & Consumable Fuels, Power",
+  "prices cross-checked against BSE on 665 of 3483 symbols (19%) - the rest are thin on BSE or not listed there, and were NOT checked rather than checked and cleared.",
+  "NSE and BSE DISAGREE on GATECH.NS: 0.7 vs 0.72 (2.7778%). One of them is wrong.",
+  "F&O ban list not checked - no endpoint found yet for it.",
+  "Point-in-time index membership not checked - equity-stockIndices 404s under the name tried; a name that should be excluded on this basis is not caught here.",
+  "Sector strength not computed AT THIS STAGE - no sector classification in bhavcopy, so no feature here is relative to a peer group. A sector map DOES now exist (configs/sectors.json, 501 symbols from NSE's index constituent files) and the regime engine uses it for leading and lagging industries; it is not wired into per-symbol features.",
+  "PER-SYMBOL news and event flags not computed - NSE corporate announcements (Tier 1, the company's own words, timestamped) are parsed but not wired into feature generation. Market-wide headlines ARE available to Stage 3; this is the per-symbol layer, which is a different and stronger signal.",
+  "Bar-level data corruption is only screened by a minimum-tick floor AT THIS STAGE. A corrupt print that is still a plausible price (1.00 on a stock trading at 1000) is not caught here, so every FEATURE on this table is computed from unvetted bars. The discontinuity screen in desk.marketdata.quality now runs, but on the Stage 3 SHORTLIST only - it costs 3.6s across the full universe and milliseconds across eight names, and it is the eight that get sized.",
+  "Relative strength vs Nifty not computed - no benchmark series supplied, and the store holds equities only.",
+  "Strategy votes not counted - the six strategy scripts are not on disk, and 0 of 6 are `trusted` on the maturity ladder. An untrusted strategy may not influence a live shortlist even when its code is present.",
+  "Sentiment and per-symbol news filters not applied - ranking uses no news input. Market-wide headlines reach Stage 3 as context, but nothing here filters or scores a name on its own announcements.",
+  "Pattern and market-structure rules not applied - swing-point structure is computed per symbol and has not been wired into this stage yet.",
+  "Fundamentals were loaded and reported, but NO hard filter is configured - neither max_filing_age_days nor min_net_margin_pct. Names were described on their fundamentals, not screened by them.",
+  "454 of 502 candidates have no filing on file, so every fundamental filter below was SKIPPED for them - they were not checked, not cleared.",
+  "Stage 3 did not run - the model errored: OpenAI returned HTTP 429: {\n    \"error\": {\n        \"message\": \"You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.\",\n        \"type\": \"insufficient_quota\",\n        \"param\": null,\n        \"code\": \"credit_balance_exhausted\"\n    }\n}\n",
+  "Sector caps are not enforced per name - bhavcopy carries no sector classification, so every setup is sized as sector UNKNOWN and the sector cap can only ever bind against other UNKNOWN positions.",
+  "Correlated-cluster caps are not enforced - no correlation matrix is computed yet, and the risk engine deliberately refuses to fall back to sector as a proxy (that would make the sector cap unreachable).",
+  "Entry levels are volatility-derived, not structural. Support, prior swing lows and consolidation edges are Stage 3's job.",
+  "Event proximity known for only 0 of 8 candidates - NSE's forward calendar covers a few weeks, so a name with no entry was NOT cleared, it was not checked.",
+  "market context: 118 deduplicated headline(s), fetched 2.6h ago",
+  "business-standard-companies: feed was not well-formed XML (not well-formed (invalid token): line 336, column 67); repaired by escaping bare ampersands - the publisher should fix this",
+  "the 8 shortlisted name(s) passed the bar-level data-quality screen.",
+  "1545 of 1548 scanned symbols have no corporate-action file, so an unadjusted split or bonus inside the lookback window would not have been caught for them. Run 'python -m desk.marketdata.refresh actions <SYMBOLS>'.",
+  "Price history behind this scan: 200 sessions, 2025-11-26 to 2026-09-17; 99 non-equity row(s) collapsed for IIFL.NS, M&MFIN.NS, MAHABANK.NS... (kept the EQ series) (gaps UNCHECKED - no calendar supplied)",
+  "No event calendar wired: RBI policy, budget, expiry and results dates are not being checked against the holding window."
+ ],
+ "coverage_note": "200 sessions, 2025-11-26 to 2026-09-17; 99 non-equity row(s) collapsed for IIFL.NS, M&MFIN.NS, MAHABANK.NS... (kept the EQ series) (gaps UNCHECKED - no calendar supplied)",
+ "capital": 100000,
+ "note": "",
+ "amends": null
+}

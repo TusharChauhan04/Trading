@@ -18,6 +18,29 @@ from desk.regime.state import RegimeState
 from desk.strategies.catalog import CATALOG
 
 
+def _regime_note(regime: RegimeState) -> str:
+    """One line on how much of the regime is actually measured.
+
+    This used to be the hardcoded string "Regime engine not built.
+    Requires India VIX + Nifty breadth." It stayed there after the engine
+    was built and wired, so the plan told the reader a capability did not
+    exist while using it - and none of the six feeds it turned out to need
+    were required in the end, because breadth is a cross-sectional fact
+    and the bhavcopy is a cross-section.
+    """
+    if not regime.sources:
+        return ("Regime not measured for this scan - no market history was "
+                "supplied, so factor silencing did not run.")
+    unknown = sorted(k for k, v in regime.sources.items()
+                     if str(v).startswith("not measured"))
+    if regime.is_measured:
+        return (f"Measured from {len(regime.sources)} dimension(s) of the "
+                f"liquid universe. Fully measured.")
+    return (f"Measured, but {', '.join(unknown) or 'some dimensions'} could "
+            f"not be computed - the label rests on the dimensions that "
+            f"could, and factor silencing used it anyway.")
+
+
 def build_plan(*, as_of: date, calendar: TradingCalendar | None,
                scan: ScanSummary | None = None) -> DailyPlan:
     """The day's plan.
@@ -32,7 +55,13 @@ def build_plan(*, as_of: date, calendar: TradingCalendar | None,
     """
     trusted = [s.key for s in CATALOG if s.trusted]
     open_defects = sum(len(s.defects) for s in CATALOG)
-    regime = RegimeState(as_of=as_of)
+    # The regime the SCAN measured, not a fresh empty one. Building a new
+    # RegimeState here meant the plan reported "unknown" on every dimension
+    # while the funnel had just measured the market and used that
+    # measurement to silence factors - the plan displayed one regime and
+    # the scan acted on another.
+    regime = (scan.regime_state if scan and scan.regime_state is not None
+              else RegimeState(as_of=as_of))
 
     warnings: list[str] = []
     market_risks: list[str] = [
@@ -104,7 +133,7 @@ def build_plan(*, as_of: date, calendar: TradingCalendar | None,
         analysed=scan.considered if scan else 0,
         trades=trades,
         regime=regime.label,
-        regime_note="Regime engine not built. Requires India VIX + Nifty breadth.",
+        regime_note=_regime_note(regime),
         regime_detail=regime.explain(),
         market_risks=market_risks,
         no_trade_reason=no_trade_reason,

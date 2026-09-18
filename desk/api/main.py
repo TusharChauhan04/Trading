@@ -1508,6 +1508,7 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
              len(stage4.approved))
 
     return ScanSummary(
+        regime_state=measured,
         universe_scanned=stage0.universe_in,
         survived_stage0=stage0.universe_out,
         survived_stage1=len(stage1.flagged),

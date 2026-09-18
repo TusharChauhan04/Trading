@@ -236,8 +236,17 @@ def test_the_api_uses_a_fresh_calendar(tmp_path, monkeypatch):
 
 
 def test_no_llm_key_means_no_client_and_no_spend(monkeypatch):
+    """Set EMPTY rather than deleted, deliberately.
+
+    Deleting it from os.environ is not enough once a real key exists in
+    .env: Settings.from_env() re-reads the file and puts it back, which
+    is exactly the behaviour production wants. An empty value in the
+    process environment WINS over the file - load_env skips any key
+    already present - so this asserts the real precedence rule rather
+    than one that only holds on a machine with no key configured.
+    """
     from desk.api import main as api
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "")
     assert api._llm_client() is None
 
 

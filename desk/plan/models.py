@@ -17,6 +17,7 @@ from datetime import date
 from pydantic import BaseModel, Field
 
 from desk.contracts.enums import Regime, Stance
+from desk.regime.state import RegimeState
 
 
 class PlanTrade(BaseModel):
@@ -50,6 +51,15 @@ class ScanSummary(BaseModel):
     considered: int = 0
     trades: list["PlanTrade"] = Field(default_factory=list)
     no_trade_reason: str | None = None
+    regime_state: "RegimeState | None" = None
+    """The regime the scan ACTUALLY measured.
+
+    Carried through because build_plan used to construct a fresh empty
+    RegimeState and show that instead - so every plan reported "unknown"
+    on all six dimensions and a note saying the engine was not built,
+    while the funnel had just measured range / flat / narrow and used it
+    to silence factors. The plan displayed one regime and the scan acted
+    on another."""
     caveats: list[str] = Field(default_factory=list)
     """Everything the funnel declared it could NOT check - Stage 0's missing
     F&O ban list, Stage 1's absent sector and news feeds, Stage 2's silenced
