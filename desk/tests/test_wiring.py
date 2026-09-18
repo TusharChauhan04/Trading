@@ -43,6 +43,7 @@ ENTRY_POINTS = (
     "desk.marketdata.refresh",    # the market-data CLI
     "desk.research.refresh",      # the research CLI
     "desk.backtest.engine",       # the backtest harness
+    "desk.backtest.baseline",     # the random-baseline harness
 )
 
 #: Modules that are legitimately not reachable, each with its reason.
