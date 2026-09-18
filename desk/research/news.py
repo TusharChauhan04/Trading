@@ -388,3 +388,143 @@ def _opposed(a: frozenset[str], b: frozenset[str]) -> bool:
     if a_up and a_down or b_up and b_down:
         return False        # mixed direction - cannot tell, so do not veto
     return (a_up and b_down) or (a_down and b_up)
+
+
+# ===========================================================================
+# Persistence
+# ===========================================================================
+#
+# Fetched once per refresh and read by the plan, for the same reason the
+# BSE cross-check and the fundamentals table are: three HTTP requests plus
+# clustering on every page load, to recompute something that changes a few
+# times an hour, is latency spent on a constant.
+#
+# STALENESS MATTERS MORE HERE THAN ANYWHERE ELSE IN THIS PROJECT. A
+# fundamentals table a week old is merely behind; a NEWS snapshot a week
+# old is actively misleading, because "market context" that predates the
+# session it is describing will be read as current. So the snapshot
+# records when it was fetched and the loader refuses anything past a few
+# hours - and unlike the calendar, absence here costs nothing but a
+# caveat.
+
+import json as _json
+from dataclasses import dataclass as _dc
+from pathlib import Path as _P
+
+#: Hours before a news snapshot stops being "today's context". Deliberately
+#: short: a headline from yesterday's close describes yesterday's market.
+DEFAULT_MAX_AGE_HOURS = 18
+
+
+@_dc(frozen=True, slots=True)
+class StoredNews:
+    clusters: list
+    fetched_at: datetime
+    age_hours: float
+    stale: bool
+    caveats: tuple[str, ...] = ()
+
+    @property
+    def caveat(self) -> str | None:
+        if not self.stale:
+            return None
+        return (f"the news snapshot is {self.age_hours:.0f} hours old, so it "
+                f"describes an earlier session and was NOT used as market "
+                f"context. Refresh it with 'python -m desk.research.refresh "
+                f"news'.")
+
+
+def save_news(clusters, path, *, fetched_at: datetime | None = None,
+              caveats=()) -> int:
+    """Write the clustered headlines atomically.
+
+    Only the fields the prompt and a human reader need. The full item list
+    per cluster is kept because "three outlets ran this" is exactly the
+    duplicate signal the module exists to compute, and discarding it would
+    make the stored form unable to answer the question it was built for.
+    """
+    path = _P(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for c in clusters:
+        rows.append({
+            "title": c.title,
+            "published_at": c.published_at.isoformat(),
+            "tier": c.tier,
+            "weight": c.weight,
+            "duplicated": c.duplicated,
+            "sources": list(c.sources),
+            "session_phase": c.first.session_phase,
+            "url": c.first.url,
+            "summary": c.first.summary[:400],
+        })
+    payload = {
+        "fetched_at": (fetched_at or datetime.now(IST)).astimezone(IST).isoformat(),
+        "caveats": list(caveats),
+        "clusters": rows,
+    }
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(_json.dumps(payload, indent=1), encoding="utf-8")
+    tmp.replace(path)
+    return len(rows)
+
+
+def load_news(path, *, now: datetime | None = None,
+              max_age_hours: float = DEFAULT_MAX_AGE_HOURS) -> "StoredNews | None":
+    """Read the snapshot, or None when there is no usable file.
+
+    Returns a lightweight cluster shape carrying exactly what the Stage 3
+    prompt reads - `title` and `published_at` - rather than rebuilding
+    NewsItem objects whose other fields nothing downstream consumes.
+    """
+    path = _P(path)
+    if not path.is_file():
+        return None
+    try:
+        payload = _json.loads(path.read_text(encoding="utf-8"))
+        fetched_at = datetime.fromisoformat(payload["fetched_at"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+    clusters = []
+    for row in payload.get("clusters", []):
+        if not isinstance(row, dict):
+            continue
+        try:
+            when = datetime.fromisoformat(row["published_at"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        clusters.append(_StoredCluster(
+            title=str(row.get("title", "")), published_at=when,
+            tier=int(row.get("tier", 3)),
+            weight=float(row.get("weight", 0.0)),
+            duplicated=bool(row.get("duplicated", False)),
+            sources=tuple(row.get("sources", ())),
+            session_phase=str(row.get("session_phase", "")),
+            url=str(row.get("url", ""))))
+
+    now = (now or datetime.now(IST)).astimezone(IST)
+    age = (now - fetched_at.astimezone(IST)).total_seconds() / 3600.0
+    return StoredNews(clusters=clusters, fetched_at=fetched_at,
+                      age_hours=age,
+                      stale=age > max_age_hours or age < -1.0,
+                      caveats=tuple(payload.get("caveats", ())))
+
+
+@_dc(frozen=True, slots=True)
+class _StoredCluster:
+    """What a cluster looks like once it has been through a JSON file.
+
+    Deliberately NOT a NewsCluster: that type derives everything from its
+    items, and rebuilding fake items to satisfy it would invent
+    timestamps. This carries the derived answers directly.
+    """
+
+    title: str
+    published_at: datetime
+    tier: int
+    weight: float
+    duplicated: bool
+    sources: tuple
+    session_phase: str
+    url: str

@@ -23,6 +23,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pandas as pd
+
 from desk.marketdata.calendar_in import CalendarError, TradingCalendar
 from desk.marketdata.sources.nse import (
     NseSession,
@@ -229,6 +231,101 @@ def refresh_bhavcopy(session: NseSession, day: date, out_dir: Path) -> int:
     return 0
 
 
+def refresh_crosscheck(session: NseSession, day: date, out_dir: Path, *,
+                       bhavcopy_dir: Path, isin_path: Path) -> int:
+    """Reconcile one day's NSE closes against BSE, and store the verdict.
+
+    AT INGEST, NOT AT QUERY TIME. "Do the two exchanges agree on the 17th"
+    is answered once for that day and never changes; running it inside
+    /plan/today would put a BSE fetch and a 5,000-row join on every page
+    load to recompute a constant.
+
+    The report is what the plan reads. It is deliberately a SUMMARY plus
+    the offending rows rather than the full join: 2,400 matched names a day
+    accumulates, and nobody needs the 2,397 that agreed.
+    """
+    from desk.marketdata.crosscheck import DEFAULT_TOLERANCE_PCT, reconcile
+    from desk.marketdata.isin import IsinMap, parse_equity_master
+    from desk.marketdata.sources.bse import BseSession
+    from desk.marketdata.sources.bse import parse_bhavcopy as parse_bse
+
+    snapshot = bhavcopy_dir / f"{day.isoformat()}.parquet"
+    if not snapshot.is_file():
+        print(f"no NSE snapshot for {day} at {snapshot} - fetch it first with "
+              f"'python -m desk.marketdata.refresh bhavcopy --date {day}'")
+        return 1
+
+    # The ISIN map is the join key and NSE's bhavcopy has no ISIN column.
+    # Cached because it changes on listings, not daily.
+    isin_map = IsinMap.load(isin_path) if isin_path.is_file() else None
+    if isin_map is None:
+        print("fetching NSE's equity master for the ISIN map")
+        isin_map = parse_equity_master(
+            session.fetch_with_retry(session.fetch_equity_master),
+            as_of=day)
+        isin_map.save(isin_path)
+    print(f"ISIN map: {len(isin_map)} symbols"
+          + (f", {len(isin_map.ambiguous)} ambiguous" if isin_map.ambiguous else ""))
+
+    bse_session = BseSession()
+    try:
+        bse = parse_bse(bse_session.fetch_with_retry(
+            bse_session.fetch_bhavcopy, day), day=day)
+    except (SourceError, RateLimited) as exc:
+        print(f"could not fetch BSE for {day}: {exc}")
+        return 1
+
+    nse = pd.read_parquet(snapshot)
+    disagreements, coverage = reconcile(nse, bse, isin_map)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dest = out_dir / f"{day.isoformat()}.json"
+    payload = {
+        "as_of": day.isoformat(),
+        "checked_at": datetime.now(IST).isoformat(timespec="seconds"),
+        "tolerance_pct": DEFAULT_TOLERANCE_PCT,
+        "coverage": {
+            "nse_symbols": coverage.nse_symbols,
+            "checkable": coverage.checkable,
+            "no_isin": coverage.no_isin,
+            "ambiguous_isin": coverage.ambiguous_isin,
+            "not_on_bse": coverage.not_on_bse,
+            "thin_on_bse": coverage.thin_on_bse,
+            "no_usable_close": coverage.no_usable_close,
+            "balanced": coverage.balanced,
+        },
+        "disagreements": [
+            {"symbol": str(r.symbol),
+             "nse_close": float(r.nse_close),
+             "bse_close": float(r.bse_close),
+             "diff_pct": round(float(r.diff_pct), 4),
+             "bse_turnover": float(r.bse_turnover)}
+            for r in disagreements.itertuples()
+        ],
+    }
+    tmp = dest.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, indent=1), encoding="utf-8")
+    tmp.replace(dest)
+
+    print(coverage.report())
+    n = len(disagreements)
+    if n:
+        print(f"\n{n} symbol(s) disagree by more than "
+              f"{DEFAULT_TOLERANCE_PCT}%:")
+        for r in disagreements.head(10).itertuples():
+            print(f"  {r.symbol:<16} NSE {r.nse_close:>10.2f}  "
+                  f"BSE {r.bse_close:>10.2f}  {r.diff_pct:>6.2f}%")
+    else:
+        print(f"\nno symbol disagrees by more than {DEFAULT_TOLERANCE_PCT}%")
+    print(f"wrote {dest}")
+
+    # A disagreement is a WARNING, not a failed run. The exchanges are both
+    # real and a thin print is not an error in our pipeline; the plan
+    # surfaces it and a human decides. Exiting non-zero here would make a
+    # scheduled refresh look broken on a perfectly ordinary day.
+    return 0
+
+
 def backfill_bhavcopy(session: NseSession, start: date, end: date,
                       out_dir: Path, *, calendar=None) -> int:
     """Fetch every trading day in [start, end] that is not already on disk.
@@ -373,6 +470,15 @@ def main(argv: list[str] | None = None) -> int:
                    metavar="YYYY-MM-DD", help="defaults to today (IST)")
     b.add_argument("--out-dir", type=Path, default=CONFIGS / "bhavcopy")
 
+    x = sub.add_parser(
+        "crosscheck",
+        help="reconcile one day's NSE closes against BSE (the second source)")
+    x.add_argument("--date", type=date.fromisoformat, metavar="YYYY-MM-DD",
+                   help="defaults to the newest NSE snapshot on disk")
+    x.add_argument("--bhavcopy-dir", type=Path, default=CONFIGS / "bhavcopy")
+    x.add_argument("--out-dir", type=Path, default=CONFIGS / "crosscheck")
+    x.add_argument("--isin", type=Path, default=CONFIGS / "isin_map.json")
+
     args = p.parse_args(argv)
     interval = getattr(args, "min_interval", 1.0)
     session = NseSession(min_interval=interval)
@@ -395,6 +501,17 @@ def main(argv: list[str] | None = None) -> int:
                 print("bhavcopy needs either --date or --from/--to")
                 return 1
             return refresh_bhavcopy(session, args.date, args.out_dir)
+        if args.what == "crosscheck":
+            day = args.date
+            if day is None:
+                snaps = sorted(args.bhavcopy_dir.glob("*.parquet"))
+                if not snaps:
+                    print(f"no NSE snapshots in {args.bhavcopy_dir}")
+                    return 1
+                day = date.fromisoformat(snaps[-1].stem)
+            return refresh_crosscheck(session, day, args.out_dir,
+                                      bhavcopy_dir=args.bhavcopy_dir,
+                                      isin_path=args.isin)
         if args.what == "research":
             kinds = tuple(k.strip() for k in args.kinds.split(",") if k.strip())
             unknown = [k for k in kinds if k not in RESEARCH_KINDS]

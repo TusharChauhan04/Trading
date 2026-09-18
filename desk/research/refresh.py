@@ -333,6 +333,47 @@ def _cmd_fundamentals(args) -> int:
     return 0
 
 
+def _cmd_news(args) -> int:
+    """Fetch every serving feed, cluster, and store the result.
+
+    A feed that fails does NOT fail the run: three outlets exist so that
+    losing one still leaves market context, and exiting non-zero because
+    Business Standard was down would make a scheduled refresh look broken
+    on a day the news was fine.
+    """
+    from desk.research.news import (
+        FEEDS, RssError, cluster_news, fetch_feed, parse_rss, save_news,
+    )
+
+    items, caveats = [], []
+    for source in FEEDS:
+        try:
+            raw = fetch_feed(source)
+            got, notes = parse_rss(raw, source)
+        except RssError as exc:
+            print(f"  {source.name:30} FAILED  {exc}")
+            caveats.append(f"{source.name} could not be read: {exc}")
+            continue
+        items.extend(got)
+        print(f"  {source.name:30} {len(got):>3} items"
+              + (f"  ({len(notes)} caveat(s))" if notes else ""))
+        caveats.extend(f"{source.name}: {n}" for n in notes)
+
+    if not items:
+        print("no feed returned anything - storing nothing rather than an "
+              "empty snapshot that would read as 'no news today'")
+        return 1
+
+    clusters = cluster_news(items)
+    n = save_news(clusters, Path(args.out), caveats=caveats)
+    dup = sum(1 for c in clusters if c.duplicated)
+    print("")
+    print(f"{len(items)} items -> {n} clusters ({dup} carried by more than "
+          f"one outlet)")
+    print(f"wrote {args.out}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -359,6 +400,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="bhavcopy directory; its newest day supplies the "
                          "symbol list")
 
+    nw = sub.add_parser(
+        "news", help="market-wide headlines from RSS, deduplicated")
+    nw.add_argument("--out", default="configs/research/news.json")
+
     rs = sub.add_parser("research", help="per-symbol research (SLOW)")
     rs.add_argument("symbols", nargs="+")
     rs.add_argument("--out", default="configs/research")
@@ -375,6 +420,8 @@ def main(argv: list[str] | None = None) -> int:
     # and building a throttled HTTP client for it would imply otherwise.
     if args.cmd == "fundamentals":
         return _cmd_fundamentals(args)
+    if args.cmd == "news":
+        return _cmd_news(args)
 
     session = NseSession()
 

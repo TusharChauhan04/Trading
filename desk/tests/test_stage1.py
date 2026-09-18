@@ -271,7 +271,9 @@ def test_every_run_declares_what_it_could_not_check(store):
     r = run_stage1(store.history(as_of=days[-1], lookback=40), min_bars=10)
     joined = " ".join(r.unavailable)
     assert "Sector strength" in joined
-    assert "News and event flags" in joined
+    # PER-SYMBOL, because market-wide headlines now DO reach Stage 3 and a
+    # caveat that says "no news is wired" would be false.
+    assert "PER-SYMBOL news and event flags" in joined
     assert "Relative strength" in joined
     assert np.isnan(r.features.loc["AAA.NS", "rs_rank"])
 

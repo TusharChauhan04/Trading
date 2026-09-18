@@ -6,6 +6,7 @@ Docs: http://localhost:8000/docs
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import date
@@ -19,12 +20,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from desk.contracts.enums import Regime
+from desk.journal import JournalError, JournalStore
+from desk.journal.store import decision_from_plan
 from desk.marketdata.calendar_in import (
     CalendarError,
     CalendarNotLoaded,
     TradingCalendar,
 )
 from desk.marketdata.corporate_actions import ActionLoadError, load_actions
+from desk.marketdata import quality
 from desk.marketdata.providers import provider_status
 from desk.marketdata.sectors import SectorMap
 from desk.marketdata.symbols import SymbolError, Symbol
@@ -41,6 +45,7 @@ from desk.llm.providers.openai import OpenAIProvider
 from desk.regime.engine import compute_regime
 from desk.research.events import load_calendar
 from desk.research.fundamentals import FundamentalsCache
+from desk.research.news import load_news
 from desk.scanner.stage2 import run_stage2
 from desk.scanner.stage3 import run_stage3
 from desk.scanner.stage4 import run_stage4
@@ -338,6 +343,123 @@ def _action_caveat(unchecked: list[str], total: int) -> list[str]:
             f"corporate-action file, so an unadjusted split or bonus inside "
             f"the lookback window would not have been caught for them. Run "
             f"'python -m desk.marketdata.refresh actions <SYMBOLS>'."]
+
+
+def _vet_candidates(history, symbols: list[str]) -> tuple[list[str], list[str]]:
+    """Screen the shortlist's own bars. Returns (survivors, caveats).
+
+    A FATAL finding DROPS the name. That is deliberate and it is the one
+    place in this funnel where bad data removes a candidate outright: the
+    entry, the stop and the size are all computed from these bars, so a
+    duplicated index or an unexplained 60% gap does not make the trade
+    riskier, it makes every number attached to it meaningless.
+
+    A WARNING is reported and the name SURVIVES. An extreme return is
+    usually a real move and sometimes an unadjusted corporate action, and
+    this screen cannot tell which - so it says so and lets the risk gate
+    and a human decide. Dropping on a warning would silently discard the
+    biggest movers, which is most of what a momentum shortlist is.
+    """
+    if not symbols:
+        return symbols, []
+    try:
+        frame = history.frame
+        sub = frame[frame["symbol"].isin(symbols)].copy()
+        if sub.empty:
+            return symbols, []
+        sub["date"] = pd.to_datetime(sub["date"])
+        reports = quality.check_panel(sub.set_index("date"), by="symbol")
+    except Exception as exc:                        # noqa: BLE001
+        # The gate failing must not take the plan with it - but it must
+        # not pass silently either, or "checked and clean" and "the
+        # checker crashed" become the same output.
+        log.warning("candidate quality screen could not run: %s", exc)
+        return symbols, [f"the data-quality screen on the shortlist could "
+                         f"not run ({exc}), so these bars were NOT vetted."]
+
+    caveats: list[str] = []
+    dropped: set[str] = set()
+    for symbol, rep in reports.items():
+        for issue in rep.fatal:
+            dropped.add(symbol)
+            caveats.append(f"{symbol} DROPPED - its price history failed a "
+                           f"data-quality check: {issue}")
+        for issue in rep.warnings:
+            caveats.append(f"{symbol}: {issue}")
+
+    survivors = [s for s in symbols if s not in dropped]
+    if not caveats:
+        caveats.append(f"the {len(symbols)} shortlisted name(s) passed the "
+                       f"bar-level data-quality screen.")
+    return survivors, caveats
+
+
+def _news():
+    """(clusters, caveats) for Stage 3's market context.
+
+    Read from the snapshot the refresh writes. Fetching three RSS feeds
+    and clustering them inside a request would add seconds to every page
+    load to recompute something that changes a few times an hour.
+
+    A STALE SNAPSHOT IS DISCARDED, not used with a warning, and the bar is
+    much tighter than elsewhere - 18 hours rather than the calendar's
+    three days. A fundamentals table a week behind is merely old; news a
+    week old is actively misleading, because anything labelled "market
+    context" will be read as describing today.
+    """
+    stored = load_news(CONFIGS / "research" / "news.json")
+    if stored is None:
+        return None, ["no news snapshot on file, so Stage 3 saw no market "
+                      "context. Run 'python -m desk.research.refresh news'."]
+    if stored.stale:
+        return None, [stored.caveat]
+    out = [f"market context: {len(stored.clusters)} deduplicated headline(s), "
+           f"fetched {stored.age_hours:.1f}h ago"]
+    out.extend(stored.caveats[:3])
+    return stored.clusters, out
+
+
+def _crosscheck_caveats(as_of: date) -> list[str]:
+    """What the second source said about the prices this plan is built on.
+
+    Read from the report the refresh writes, never computed here: the
+    answer to "do NSE and BSE agree on the 17th" is fixed once that day
+    closes, and recomputing it per request would mean a BSE fetch and a
+    5,000-row join on every page load to arrive at a constant.
+
+    ABSENCE IS REPORTED. A plan whose prices were never cross-checked and
+    a plan whose prices were checked and agreed are different states, and
+    only one of them has a second source behind it.
+    """
+    path = CONFIGS / "crosscheck" / f"{as_of.isoformat()}.json"
+    if not path.is_file():
+        return ["prices were NOT cross-checked against BSE for this day - "
+                "the plan rests on a single source. Run 'python -m "
+                "desk.marketdata.refresh crosscheck'."]
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ["the BSE cross-check report for this day is unreadable, so "
+                "prices rest on a single source."]
+
+    cov = report.get("coverage", {})
+    checkable = int(cov.get("checkable", 0))
+    total = int(cov.get("nse_symbols", 0))
+    bad = report.get("disagreements", [])
+    out = [
+        f"prices cross-checked against BSE on {checkable} of {total} "
+        f"symbols ({100.0 * checkable / total:.0f}%) - the rest are thin on "
+        f"BSE or not listed there, and were NOT checked rather than checked "
+        f"and cleared."
+    ]
+    for row in bad[:5]:
+        out.append(
+            f"NSE and BSE DISAGREE on {row.get('symbol')}: "
+            f"{row.get('nse_close')} vs {row.get('bse_close')} "
+            f"({row.get('diff_pct')}%). One of them is wrong.")
+    if len(bad) > 5:
+        out.append(f"...and {len(bad) - 5} more price disagreements.")
+    return out
 
 
 def _regime_caveats(measured) -> list[str]:
@@ -960,7 +1082,32 @@ def _plan(*, as_of: date, regime: Regime, capital: float, max_trades: int,
     scan = _run_funnel(as_of, regime=regime, capital=capital,
                        max_trades=max_trades, lookback=lookback,
                        portfolio=portfolio)
-    return build_plan(as_of=as_of, calendar=cal, scan=scan)
+    plan = build_plan(as_of=as_of, calendar=cal, scan=scan)
+    _journal(plan, scan, capital)
+    return plan
+
+
+def _journal(plan: DailyPlan, scan: ScanSummary | None, capital: float) -> None:
+    """Record what the desk decided. Never fails the request.
+
+    THE FIRST PLAN OF THE DAY IS THE ONE RECORDED. JournalStore refuses to
+    overwrite, so re-requesting - browsing, a different capital, a page
+    reload - leaves the original standing. That is the journal working:
+    the decision is what was decided first, and a later run knows more
+    than the morning did. A genuine correction goes through amend(), which
+    keeps both versions and demands a reason.
+
+    Wrapped so a journal problem can never break the plan endpoint. The
+    desk answering today matters more than the record of it, and a full
+    disk must not turn into a 500 on the one page the trader needs.
+    """
+    try:
+        JournalStore(CONFIGS / "journal").record(
+            decision_from_plan(plan, summary=scan, capital=capital))
+    except JournalError:
+        pass                    # already recorded for this day - correct
+    except Exception as exc:    # noqa: BLE001
+        log.warning("could not journal the plan for %s: %s", plan.as_of, exc)
 
 
 def _run_funnel(as_of: date, *, regime: Regime, capital: float,
@@ -969,13 +1116,19 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
                 today: date | None = None,
                 target_r: float | None = None,
                 stop_atrs: float = 2.0,
-                holding_days: int = 5) -> ScanSummary | None:
+                holding_days: int = 5,
+                use_llm: bool = True) -> ScanSummary | None:
     """The whole scanner, reduced to the primitives build_plan takes.
 
     Returns None when no snapshot exists for the day - build_plan turns that
     into a NO TRADE naming the fetch command. Any other failure is also None
     plus a logged warning rather than a 500: the plan endpoint's job is to
     answer honestly every day, and "the scan could not run" is an answer.
+
+    `use_llm=False` disables Stage 3 entirely and is what the backtest
+    passes. See the comment at the call site: without it a replay would
+    make live, paid, look-ahead-contaminated calls as soon as a key
+    existed.
 
     `target_r`, `stop_atrs` and `holding_days` are the strategy's three
     real tunables and they are exposed here so a BACKTEST CAN SWEEP THEM.
@@ -1038,8 +1191,29 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
         # endpoint answers every day whether or not a calendar has been
         # refreshed and whether or not an LLM key is configured.
         events, event_caveats = _event_calendar(as_of)
-        stage3 = run_stage3(stage2, client=_llm_client(), events=events,
-                            fundamentals=fundamentals)
+        news, news_caveats = _news()
+        # use_llm=False is how the BACKTEST switches Stage 3 off, and it
+        # is not a convenience. run_backtest reaches Stage 3 through this
+        # function, so _llm_client() would hand a replay a live provider
+        # the moment OPENAI_API_KEY was set: hundreds of paid calls, and
+        # a model that partly REMEMBERS the answer for the simulated date.
+        # stage3.py's "never call this inside a backtest loop" was true of
+        # run_stage3 and false of the path that actually reaches it.
+        stage3 = run_stage3(stage2,
+                            client=_llm_client() if use_llm else None,
+                            events=events, fundamentals=fundamentals,
+                            news=news)
+        # R6's data-quality gate, on the SHORTLIST rather than the
+        # universe. check_panel over all 1,548 survivors measured 3.59s -
+        # too slow for a request that already takes ten - and it is the
+        # wrong scope anyway: a corrupt print on a name we are not about
+        # to trade changes nothing. Run on the ~8 names that survived
+        # Stage 3, it costs milliseconds and guards exactly the bars a
+        # position would be sized from.
+        vetted, quality_caveats = _vet_candidates(history, stage3.kept)
+        if vetted != stage3.kept:
+            stage3.kept = vetted
+
         stage4 = run_stage4(stage3.narrow(stage2), stage1,
                             cfg=RiskConfig(capital=capital),
                             portfolio=portfolio, events=events,
@@ -1064,10 +1238,10 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
         considered=stage4.considered,
         trades=stage4.approved,
         no_trade_reason=stage4.no_trade_reason(),
-        caveats=[*_regime_caveats(measured),
+        caveats=[*_regime_caveats(measured), *_crosscheck_caveats(as_of),
                  *stage0.caveats, *stage1.unavailable, *stage2.unavailable,
                  *stage3.unavailable, *stage4.unavailable, *event_caveats,
-                 *fundamental_caveats,
+                 *fundamental_caveats, *news_caveats, *quality_caveats,
                  *_action_caveat(unchecked, len(survivors))],
         coverage_note=stage1.coverage.describe(),
     )

@@ -1,0 +1,22 @@
+{
+ "as_of": "2026-09-18",
+ "recorded_at": "2026-09-18T14:17:35.885979+05:30",
+ "regime": "unknown",
+ "trades": [],
+ "no_trade_reason": "NO TRADE - no scan was run for this date. Fetch the day's snapshot with 'python -m desk.marketdata.refresh bhavcopy --date 2026-09-18' and try again.",
+ "universe_scanned": 0,
+ "survived_stage0": 0,
+ "survived_stage1": 0,
+ "survived_stage2": 0,
+ "considered": 0,
+ "caveats": [
+  "0 of 6 strategies have cleared walk-forward; 14 known defects are still on the books.",
+  "Strategy library needs re-running on the corrected strategy_lib.",
+  "No scanner run today: universe/stage1/stage2/analysed counts are all zero by construction, not because nothing qualified.",
+  "No event calendar wired: RBI policy, budget, expiry and results dates are not being checked against the holding window."
+ ],
+ "coverage_note": "",
+ "capital": 100000.0,
+ "note": "",
+ "amends": null
+}

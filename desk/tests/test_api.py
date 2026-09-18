@@ -308,7 +308,7 @@ def test_scanner_stage1_declares_what_it_could_not_check(isolated_config):
     body = client.get("/scanner/stage1?day=2026-09-11&lookback=60"
                       "&flagged_only=false").json()
     joined = " ".join(body["unavailable"])
-    assert "Sector strength" in joined and "News" in joined
+    assert "Sector strength" in joined and "news" in joined.lower()
 
 
 def test_scanner_stage1_nan_features_serialise_as_null_not_zero(isolated_config):

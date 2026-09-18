@@ -53,13 +53,23 @@ __all__ = ["Stage1Result", "run_stage1", "FEATURE_COLUMNS", "REQUIRED_BARS"]
 REQUIRED_BARS = ("open", "high", "low", "close", "volume")
 
 UNAVAILABLE = (
-    "Sector strength not computed - no sector classification in bhavcopy and "
-    "no sector map in the project.",
-    "News and event flags not computed - no announcements feed is wired.",
-    "Bar-level data corruption is only screened by a minimum-tick floor. A "
-    "corrupt print that is still a plausible price (1.00 on a stock trading "
-    "at 1000) is not caught here - that needs the discontinuity screen in "
-    "desk.marketdata.quality, which is not yet wired into the scanner.",
+    "Sector strength not computed AT THIS STAGE - no sector classification "
+    "in bhavcopy, so no feature here is relative to a peer group. A sector "
+    "map DOES now exist (configs/sectors.json, 501 symbols from NSE's index "
+    "constituent files) and the regime engine uses it for leading and "
+    "lagging industries; it is not wired into per-symbol features.",
+    "PER-SYMBOL news and event flags not computed - NSE corporate "
+    "announcements (Tier 1, the company's own words, timestamped) are "
+    "parsed but not wired into feature generation. Market-wide headlines "
+    "ARE available to Stage 3; this is the per-symbol layer, which is a "
+    "different and stronger signal.",
+    "Bar-level data corruption is only screened by a minimum-tick floor AT "
+    "THIS STAGE. A corrupt print that is still a plausible price (1.00 on a "
+    "stock trading at 1000) is not caught here, so every FEATURE on this "
+    "table is computed from unvetted bars. The discontinuity screen in "
+    "desk.marketdata.quality now runs, but on the Stage 3 SHORTLIST only - "
+    "it costs 3.6s across the full universe and milliseconds across eight "
+    "names, and it is the eight that get sized.",
 )
 
 #: Every feature column produced, in report order. Named explicitly so a

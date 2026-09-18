@@ -117,7 +117,9 @@ UNAVAILABLE = (
     "Strategy votes not counted - the six strategy scripts are not on disk, "
     "and 0 of 6 are `trusted` on the maturity ladder. An untrusted strategy "
     "may not influence a live shortlist even when its code is present.",
-    "Sentiment and news filters not applied - no announcements feed is wired.",
+    "Sentiment and per-symbol news filters not applied - ranking uses no "
+    "news input. Market-wide headlines reach Stage 3 as context, but "
+    "nothing here filters or scores a name on its own announcements.",
     "Pattern and market-structure rules not applied - swing-point structure "
     "is computed per symbol and has not been wired into this stage yet.",
 )

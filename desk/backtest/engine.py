@@ -17,8 +17,14 @@ would be where look-ahead crept in.
 
 NO LLM. EVER. IN THIS LOOP.
 ---------------------------
-`client=None` is hard-coded, not a default a caller can override. Two
-reasons, and the second is the serious one:
+`use_llm=False` is passed on every call into the funnel and is not a
+caller option. This was WRONG until a wiring test caught it: run_backtest
+reaches Stage 3 through desk.api.main._run_funnel, which builds a client
+from OPENAI_API_KEY, so a replay would have made live paid calls the
+moment a key existed. stage3.py's "never call this inside a backtest
+loop" was true of run_stage3 and false of the only path that reaches it.
+
+Two reasons, and the second is the serious one:
 
   1. Hundreds of paid calls per run.
   2. A model trained on data past the simulated date partly REMEMBERS the
@@ -267,7 +273,11 @@ def run_backtest(store, *, start: date, end: date, capital: float = 1_000_000,
                                   max_trades=max_trades, lookback=lookback,
                                   portfolio=None, today=day,
                                   target_r=target_r, stop_atrs=stop_atrs,
-                                  holding_days=holding_days)
+                                  holding_days=holding_days,
+                                  # NOT negotiable - see the module
+                                  # docstring. A replay must never reach a
+                                  # provider, key configured or not.
+                                  use_llm=False)
         except Exception as exc:                      # noqa: BLE001
             result.days.append(DayResult(as_of=day, error=str(exc)[:200]))
             continue
