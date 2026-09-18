@@ -414,7 +414,24 @@ def _apply_fundamentals(src, fundamentals, excluded, *,
     convention for free - two distinct reason strings, two distinct counts.
     """
     notes: list[str] = []
-    joined = src.join(fundamentals, how="left")
+
+    # NORMALISE THE JOIN KEY. Stage 1 indexes by the full NSE symbol
+    # ("RELIANCE.NS"); build_table keys by the base symbol ("RELIANCE"),
+    # because that is how the filings store is laid out. A plain join
+    # matched NOTHING - not one row, ever.
+    #
+    # It hid for as long as it did because the failure was indistinguishable
+    # from the normal state: with no filings on disk the join legitimately
+    # matched nothing, and the caveat said "438 of 438 candidates have no
+    # filing on file", which was TRUE OF THE JOIN and false of reality. An
+    # honest message about the wrong thing is the hardest kind of bug to
+    # see.
+    right = fundamentals.copy()
+    right.index = [str(i).split(".")[0].upper() for i in right.index]
+    right = right[~right.index.duplicated(keep="first")]
+    keys = pd.Index([str(i).split(".")[0].upper() for i in src.index],
+                    name="base")
+    joined = src.join(right.reindex(keys).set_axis(src.index), how="left")
 
     have = joined["period_end"].notna() if "period_end" in joined else None
     if have is not None:

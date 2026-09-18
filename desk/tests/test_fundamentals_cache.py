@@ -350,3 +350,50 @@ def test_the_api_never_reaches_forward_for_a_table(tmp_path, monkeypatch):
     frame, caveats = api._fundamentals(date(2026, 9, 11))
     assert frame is None
     assert "no fundamentals table on file" in caveats[0]
+
+
+def test_the_join_matches_despite_the_nse_suffix():
+    """REGRESSION, and it had never matched a single row in production.
+
+    Stage 1 indexes features by the full NSE symbol ("RELIANCE.NS");
+    build_table keys the fundamentals table by the base symbol
+    ("RELIANCE"), because that is how the filings store is laid out. A
+    plain DataFrame.join between the two matches NOTHING.
+
+    It hid because the failure was indistinguishable from the normal
+    state: with no filings on disk the join legitimately matched nothing,
+    and the caveat read "438 of 438 candidates have no filing on file" -
+    true of the join, false of reality. Once 186 symbols really had
+    filings, the shortlist still reported 438 of 438 missing while 34 of
+    them were present on disk.
+    """
+    table = _table(("AAA", "BBB"))          # keyed WITHOUT the suffix
+    out = run_stage2(_stage1(["AAA.NS", "BBB.NS", "CCC.NS"]),
+                     regime=Regime.TRENDING_UP, min_factors=1,
+                     fundamentals=table)
+
+    # Two of three matched, so the note must say ONE is missing - not all.
+    assert any("1 of 3 candidates have no filing" in u
+               for u in out.unavailable), out.unavailable
+
+
+def test_the_join_survives_a_suffixed_fundamentals_index():
+    """Whichever way either side is keyed, the match must work."""
+    table = _table(("AAA", "BBB"))
+    table.index = [f"{s}.NS" for s in table.index]
+    out = run_stage2(_stage1(["AAA.NS", "BBB.NS", "CCC.NS"]),
+                     regime=Regime.TRENDING_UP, min_factors=1,
+                     fundamentals=table, min_net_margin_pct=0.0)
+    # AAA and BBB have a 12% margin and clear the filter; CCC is unchecked.
+    assert set(out.ranked.index) == {"AAA.NS", "BBB.NS", "CCC.NS"}
+
+
+def test_a_filter_now_actually_reaches_real_candidates():
+    """The join failing meant every hard filter was a no-op: nothing ever
+    had a margin to test, so nothing was ever excluded."""
+    table = _table(("AAA", "BBB"), margin=-5.0)
+    out = run_stage2(_stage1(["AAA.NS", "BBB.NS", "CCC.NS"]),
+                     regime=Regime.TRENDING_UP, min_factors=1,
+                     fundamentals=table, min_net_margin_pct=0.0)
+    assert out.excluded.get("net margin below 0.0%") == 2
+    assert "CCC.NS" in out.ranked.index
