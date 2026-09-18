@@ -19,7 +19,17 @@ F&O layer, which does not exist yet, so a bearish name belongs on the avoid
 list rather than in a trade.
 
 THE SETUP PROPOSER IS DELIBERATELY DUMB. Stop at `stop_atrs` x ATR below the
-reference price, target at `target_r` x the stop distance above it. It does
+reference price, target at `target_r` x the stop distance above it - a 1:2
+trade by default, meaning risk one rupee to make two.
+
+THAT DEFAULT WAS 2.5 AND IT WAS MEASURED, NOT ARGUED ABOUT. The first real
+backtest over 29 sessions took 60 trades and only THREE ever reached a 2.5R
+target, while 23 took a full stop and 34 simply timed out at the 5-day
+horizon. A target the market rarely reaches inside the holding period is not
+a better trade - it is a trade that mostly expires, paying full price for
+every loss and collecting almost none of the wins. 2.0 is closer to what a
+5-day hold can actually deliver. It is configurable via DESK_RISK_REWARD and
+should be re-measured, not assumed. It does
 not look for support levels, prior swing lows or round numbers - those are
 Stage 3's job once an LLM is reading the chart's context, and inventing them
 deterministically here would produce confident-looking prices with nothing
@@ -37,6 +47,7 @@ from datetime import date
 import pandas as pd
 
 from desk.contracts.enums import RejectReason, Stance
+from desk.settings import DEFAULT_RISK_REWARD
 from desk.plan.models import PlanTrade
 from desk.risk.engine import Portfolio, RiskConfig, Sizing, size_position
 from desk.scanner.stage1 import Stage1Result
@@ -139,7 +150,7 @@ def propose_setup(
     score: float,
     *,
     stop_atrs: float = 2.0,
-    target_r: float = 2.5,
+    target_r: float = DEFAULT_RISK_REWARD,
 ) -> Setup | None:
     """Turn one Stage 1 feature row into a concrete long setup.
 
@@ -195,7 +206,7 @@ def run_stage4(
     events: "EventCalendar | None" = None,
     holding_days: int = 5,
     stop_atrs: float = 2.0,
-    target_r: float = 2.5,
+    target_r: float = DEFAULT_RISK_REWARD,
     market_risk_off: bool = False,
     today: date | None = None,
 ) -> Stage4Result:

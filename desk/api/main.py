@@ -31,6 +31,7 @@ from desk.marketdata.symbols import SymbolError, Symbol
 from desk.plan.build import build_plan
 from desk.plan.models import DailyPlan, ScanSummary
 from desk.registry.fleet import fleet_status
+from desk.settings import Settings
 from desk.risk.engine import Portfolio, Position, RiskConfig, Sizing, size_position
 from desk.scanner.stage0 import run_stage0
 from desk.scanner.stage1 import REQUIRED_BARS, Stage1Result, run_stage1
@@ -415,19 +416,25 @@ def _fundamentals(as_of: date):
 def _llm_client():
     """A metered client, or None when Stage 3 cannot run.
 
-    None is the normal state today: no key is configured. Stage 3 reports
-    itself as not run and the shortlist passes through untouched, which is
-    why /plan/today keeps working unchanged. Nothing here can spend money
-    without OPENAI_API_KEY being set deliberately, and even then only up to
-    the ceiling in desk.llm.budget - which is still a placeholder awaiting a
-    real number.
+    None is the normal state until a key is configured. Stage 3 then
+    reports itself as not run and the shortlist passes through untouched,
+    which is why /plan/today keeps working unchanged.
+
+    Everything comes from the environment (see .env.example): the key, the
+    model, the monthly rupee ceiling and the USD rate. Settings are re-read
+    on every call rather than cached at import, so editing .env and
+    reloading the page takes effect without restarting the server - which
+    is what someone actually does when they first paste a key in.
     """
-    provider = OpenAIProvider()
+    cfg = Settings.from_env()
+    provider = OpenAIProvider(model=cfg.llm_model, api_key=cfg.openai_api_key)
     if not provider.configured:
         return None
-    return MeteredClient(provider=provider,
-                         meter=CostMeter(ledger_path=CONFIGS / "llm"
-                                         / "spend.ledger.jsonl"))
+    return MeteredClient(
+        provider=provider,
+        meter=CostMeter(ledger_path=CONFIGS / "llm" / "spend.ledger.jsonl",
+                        monthly_ceiling_inr=cfg.llm_monthly_ceiling_inr,
+                        usd_inr=cfg.usd_inr))
 
 
 def _stage1_for(target: date, *, lookback: int, min_price: float,
@@ -959,13 +966,23 @@ def _plan(*, as_of: date, regime: Regime, capital: float, max_trades: int,
 def _run_funnel(as_of: date, *, regime: Regime, capital: float,
                 max_trades: int, lookback: int,
                 portfolio: Portfolio | None,
-                today: date | None = None) -> ScanSummary | None:
+                today: date | None = None,
+                target_r: float | None = None,
+                stop_atrs: float = 2.0,
+                holding_days: int = 5) -> ScanSummary | None:
     """The whole scanner, reduced to the primitives build_plan takes.
 
     Returns None when no snapshot exists for the day - build_plan turns that
     into a NO TRADE naming the fetch command. Any other failure is also None
     plus a logged warning rather than a 500: the plan endpoint's job is to
     answer honestly every day, and "the scan could not run" is an answer.
+
+    `target_r`, `stop_atrs` and `holding_days` are the strategy's three
+    real tunables and they are exposed here so a BACKTEST CAN SWEEP THEM.
+    Without that the harness can only ever measure one configuration, which
+    is the one question it is least useful for - the first real run showed
+    3 of 60 trades reaching a 2.5R target, and there was no way to ask what
+    2.0R would have done. `target_r` defaults to DESK_RISK_REWARD.
 
     `today` exists for the BACKTEST, and it is not cosmetic. The risk
     engine refuses data more than 5 days old, measured against "today" - so
@@ -1027,6 +1044,8 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
                             cfg=RiskConfig(capital=capital),
                             portfolio=portfolio, events=events,
                             max_trades=max_trades,
+                            target_r=target_r or Settings.from_env().risk_reward,
+                            stop_atrs=stop_atrs, holding_days=holding_days,
                             today=today or _today_ist())
     except (ValueError, StoreError) as exc:
         log.warning("scan for %s could not run: %s", as_of, exc)

@@ -1,16 +1,88 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, inr, type DailyPlan } from "../api";
+
+/** Remembered between visits. Nobody wants to retype their capital daily. */
+const CAPITAL_KEY = "desk.capital";
+const DEFAULT_CAPITAL = 100_000;
+
+function storedCapital(): number {
+  try {
+    const raw = window.localStorage.getItem(CAPITAL_KEY);
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : DEFAULT_CAPITAL;
+  } catch {
+    // Private windows and blocked site data both throw here.
+    return DEFAULT_CAPITAL;
+  }
+}
 
 export default function DailyPlanView() {
   const [plan, setPlan] = useState<DailyPlan | null>(null);
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
+  // `capital` is what has been APPLIED; `draft` is what is in the box.
+  // Kept apart deliberately: re-running the whole funnel on every
+  // keystroke would fire a scan for "1", "10", "100"... and each one is a
+  // real full-universe run on the server.
+  const [capital, setCapital] = useState<number>(storedCapital);
+  const [draft, setDraft] = useState<string>(() => String(storedCapital()));
 
-  useEffect(() => {
-    api.plan().then(setPlan).catch((e) => setErr(String(e)));
+  const load = useCallback((amount: number) => {
+    setLoading(true);
+    setErr("");
+    api
+      .plan(amount)
+      .then(setPlan)
+      .catch((e) => setErr(String(e)))
+      .finally(() => setLoading(false));
   }, []);
 
-  if (err) return <p className="err">Backend unreachable — {err}</p>;
-  if (!plan) return <p className="hint">Loading today's plan…</p>;
+  useEffect(() => { load(capital); }, [capital, load]);
+
+  const apply = () => {
+    const n = Number(draft.replace(/[,\s₹]/g, ""));
+    if (!Number.isFinite(n) || n <= 0) {
+      setErr("Enter a capital amount greater than zero.");
+      return;
+    }
+    try { window.localStorage.setItem(CAPITAL_KEY, String(n)); } catch {
+      /* not fatal - the plan still runs, it just will not be remembered */
+    }
+    setCapital(n);
+  };
+
+  const capitalBox = (
+    <div className="card" style={{ marginBottom: 14 }}>
+      <h3 style={{ fontSize: 17 }}>Capital to trade</h3>
+      <p className="hint" style={{ marginTop: 2 }}>
+        Every position is sized against this. Targets are set at 1:2 —
+        risk one rupee to make two. Changing it re-runs the whole funnel,
+        because a plan for one lakh is a different plan, not the same one
+        scaled.
+      </p>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
+        <span className="mono" style={{ fontSize: 18 }}>₹</span>
+        <input
+          className="mono"
+          inputMode="numeric"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") apply(); }}
+          style={{ width: 180, padding: "6px 8px", fontSize: 15 }}
+          aria-label="Capital to trade, in rupees"
+        />
+        <button onClick={apply} disabled={loading}>
+          {loading ? "Running…" : "Apply"}
+        </button>
+        <span className="hint">
+          currently sizing against {inr(capital)}
+        </span>
+      </div>
+    </div>
+  );
+
+  if (err) return <>{capitalBox}<p className="err">{err}</p></>;
+  if (!plan) return <>{capitalBox}<p className="hint">Loading today's plan…</p></>;
 
   const stage = (k: string, v: number) => (
     <div key={k}><div className="k">{k}</div><div className="v">{v}</div></div>
@@ -18,6 +90,7 @@ export default function DailyPlanView() {
 
   return (
     <>
+      {capitalBox}
       <p className="lede">
         One plan a day. The funnel below narrows the universe; whatever survives
         gets a full multi-agent read. If nothing survives, the plan says so

@@ -223,6 +223,7 @@ class BacktestResult:
 def run_backtest(store, *, start: date, end: date, capital: float = 1_000_000,
                  max_trades: int = 3, lookback: int = 120,
                  holding_days: int = 5, regime: Regime = Regime.UNKNOWN,
+                 target_r: float | None = None, stop_atrs: float = 2.0,
                  costs: CostModel | None = None,
                  journal=None, progress=None) -> BacktestResult:
     """Replay the funnel over every session in [start, end].
@@ -264,7 +265,9 @@ def run_backtest(store, *, start: date, end: date, capital: float = 1_000_000,
             # NO TRADE while appearing to work.
             summary = _run_funnel(day, regime=regime, capital=capital,
                                   max_trades=max_trades, lookback=lookback,
-                                  portfolio=None, today=day)
+                                  portfolio=None, today=day,
+                                  target_r=target_r, stop_atrs=stop_atrs,
+                                  holding_days=holding_days)
         except Exception as exc:                      # noqa: BLE001
             result.days.append(DayResult(as_of=day, error=str(exc)[:200]))
             continue

@@ -37,6 +37,13 @@ configs/bhavcopy/
 # plan says the earnings gate did not run and names the command to fix it.
 configs/research/
 
+# SECRETS. Added before the first .env file was created, deliberately -
+# an API key committed once is in the history forever, and `git rm` does
+# not remove it. .env.example is tracked and holds only placeholders.
+.env
+.env.*
+!.env.example
+
 # Local, machine-specific
 *.tmp
 *.json.tmp

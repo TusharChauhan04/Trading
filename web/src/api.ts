@@ -150,7 +150,16 @@ export const api = {
     get<string[]>(`/strategies/eligible/${regime}?trusted_only=${trustedOnly}`),
   symbol: (raw: string) => get<SymbolInfo>(`/symbols/${encodeURIComponent(raw)}`),
   defaultConfig: () => get<RiskConfig>("/risk/config/default"),
-  plan: () => get<DailyPlan>("/plan/today"),
+  // `capital` is what the risk engine sizes every position against, so it
+  // is a real input to the answer rather than a display preference - a
+  // plan computed for one lakh is a different plan, not the same one
+  // shown differently. Passed through on every call.
+  plan: (capital?: number) =>
+    get<DailyPlan>(
+      capital && capital > 0
+        ? `/plan/today?capital=${encodeURIComponent(capital)}`
+        : "/plan/today",
+    ),
   size: (body: {
     symbol: string; entry: number; stop: number; target?: number | null;
     sector?: string; corr_group?: string | null;
