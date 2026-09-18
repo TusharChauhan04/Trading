@@ -1373,7 +1373,8 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
                 target_r: float | None = None,
                 stop_atrs: float = 2.0,
                 holding_days: int = 5,
-                use_llm: bool = True) -> ScanSummary | None:
+                use_llm: bool = True,
+                shuffle: int | None = None) -> ScanSummary | None:
     """The whole scanner, reduced to the primitives build_plan takes.
 
     Returns None when no snapshot exists for the day - build_plan turns that
@@ -1472,6 +1473,20 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
         # to trade changes nothing. Run on the ~8 names that survived
         # Stage 3, it costs milliseconds and guards exactly the bars a
         # position would be sized from.
+        # RESEARCH CONTROL, not a trading feature. `shuffle` reorders the
+        # Stage 2 ranking with a seeded RNG, so Stage 4 sizes RANDOM names
+        # from the same survivor set under identical sizing, gates, exits
+        # and costs. That is the null hypothesis the real ranking has to
+        # beat, and without it "-0.35R" cannot be read: a random baseline
+        # of -0.35R would mean the exits and costs are the problem, while
+        # a random baseline near zero would mean the ranking is actively
+        # harmful. Default None changes nothing.
+        if shuffle is not None and not stage2.ranked.empty:
+            stage2.ranked = stage2.ranked.sample(
+                frac=1.0, random_state=shuffle)
+            stage3.kept = [s for s in stage2.ranked.index
+                           if s in set(stage3.kept)]
+
         vetted, quality_caveats = _vet_candidates(history, stage3.kept)
         if vetted != stage3.kept:
             stage3.kept = vetted

@@ -1,5 +1,6 @@
 """Replaying the funnel over history to find out whether the edge is real."""
 
+from desk.backtest.baseline import BaselineResult, run_baseline
 from desk.backtest.costs import CostModel, TradeCosts, ZERO_COSTS
 from desk.backtest.engine import BacktestResult, DayResult, run_backtest
 from desk.backtest.simulate import (
@@ -7,7 +8,7 @@ from desk.backtest.simulate import (
 )
 
 __all__ = [
-    "BacktestResult", "CostModel", "DayResult", "ExitSimulation",
+    "BacktestResult", "BaselineResult", "run_baseline", "CostModel", "DayResult", "ExitSimulation",
     "SimulatedTrade", "TradeCosts", "ZERO_COSTS", "run_backtest",
     "simulate_trade",
 ]
