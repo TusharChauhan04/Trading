@@ -1078,9 +1078,15 @@ def plan_today(
 ) -> DailyPlan:
     """The day's plan: the whole funnel, or an explicit NO TRADE.
 
-    Stage 0 -> 1 -> 2 -> 4, every stage deterministic. Stage 3 (LLM research)
-    is not built, so this is the DETERMINISTIC path end to end - which is ~98%
-    of the funnel by design; the AI reads and explains, it does not compute.
+    Stage 0 -> 1 -> 2 -> 3 -> 4. Stages 0, 1, 2 and 4 are deterministic and
+    free; Stage 3 is the narrative pass and the only one that costs money.
+
+    Stage 3 CAN ONLY REMOVE NAMES - it cannot add a candidate, raise a
+    score, move a stop or change a size - so the ~98% of the funnel that
+    decides what a trade looks like stays deterministic either way. When no
+    key is configured, or the account has no credits, or the model errors,
+    Stage 3 reports itself as not run and the shortlist passes through
+    untouched. The plan still answers.
 
     Runs only if the day's bhavcopy snapshot is already on disk. It makes no
     network call: a missing snapshot is a NO TRADE with the fetch command in
