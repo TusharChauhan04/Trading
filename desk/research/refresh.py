@@ -374,6 +374,160 @@ def _cmd_news(args) -> int:
     return 0
 
 
+"""Closing the journal loop: what actually happened to each recorded trade.
+
+The journal has recorded decisions since it was wired, and nothing could
+record outcomes - `record_outcomes` was called from no CLI and no
+endpoint. So `unrecorded_outcomes` grew forever and NOTHING was ever
+measurable against what the market did. A journal that only holds
+intentions is a diary, not evidence.
+
+TWO WAYS TO CLOSE A TRADE, and they are deliberately different commands.
+
+`settle` derives the outcome FROM PRICE HISTORY, using the same exit
+simulator the backtest uses - so a live decision and a replayed one are
+scored by identical code rather than by two implementations that can
+drift. This is for the normal case: the desk proposed a trade, the levels
+were known, and the bars since then say what would have happened.
+
+`close` records what a HUMAN actually did. A real fill differs from the
+simulated one - a different price, a discretionary exit, or the trade was
+never taken at all. That last case is recorded rather than deleted: a
+plan whose trades are routinely skipped is a fact about the desk, and
+dropping those makes the journal describe a desk that does not exist.
+
+R-MULTIPLES COME FROM THE DECISION'S OWN LEVELS in both paths. The risk
+that was accepted is the one written down that morning, not one measured
+against a stop moved afterwards.
+"""
+
+
+def _cmd_settle(args) -> int:
+    """Derive outcomes for a recorded day from the price history since."""
+    from desk.backtest.simulate import simulate_trade
+    from desk.journal import ExitReason, JournalStore, Outcome
+    from desk.journal.models import IST
+    from desk.store import BarStore
+
+    store = JournalStore(Path(args.journal))
+    days = ([date.fromisoformat(args.day)] if args.day
+            else store.unrecorded())
+    if not days:
+        print("nothing to settle - every recorded day with trades already "
+              "has its outcomes on file")
+        return 0
+
+    bars_store = BarStore(Path(args.bhavcopy))
+    available = bars_store.available_days()
+    if not available:
+        print(f"no price history in {args.bhavcopy}")
+        return 1
+
+    settled = skipped = 0
+    for day in days:
+        dec = store.latest(day)
+        if dec is None:
+            print(f"{day}  SKIPPED  nothing recorded (or unreadable)")
+            continue
+        if dec.is_no_trade:
+            continue
+
+        # The full forward history. Legitimate here for the same reason it
+        # is in the backtest: the decision is already fixed and nothing
+        # computed below can reach back into it.
+        history = bars_store.history(as_of=available[-1], start=day,
+                                     symbols=list(dec.symbols),
+                                     columns=["open", "high", "low", "close"])
+        existing = {o.symbol: o for o in store.outcomes(day)}
+        out = []
+        for trade in dec.trades:
+            if trade.symbol in existing and not args.force:
+                out.append(existing[trade.symbol])
+                continue
+            if trade.stop is None or not trade.qty:
+                continue
+
+            sim = simulate_trade(history.series(trade.symbol),
+                                 symbol=trade.symbol, decided_on=day,
+                                 planned_entry=trade.entry, stop=trade.stop,
+                                 target=trade.target, qty=trade.qty,
+                                 horizon_days=args.horizon)
+            o = Outcome(decision_date=day, symbol=trade.symbol,
+                        observed_at=datetime.now(IST))
+            if sim.trade is None:
+                # Never entered. NOT_TAKEN, recorded rather than dropped.
+                o.close(price=0.0, on=day, reason=ExitReason.NOT_TAKEN,
+                        entry=None, stop=None, qty=0)
+                o.note = sim.reason_not_taken or "could not be entered"
+                print(f"{day}  {trade.symbol:<14} NOT TAKEN  "
+                      f"{o.note}")
+                skipped += 1
+            else:
+                t = sim.trade
+                o.close(price=t.exit_price, on=t.exit_date,
+                        reason=t.exit_reason, entry=t.entry_price,
+                        stop=t.stop, qty=t.qty)
+                o.note = ("derived from daily bars"
+                          + (" - AMBIGUOUS bar, resolved as a stop"
+                             if t.ambiguous else "")
+                          + (" - gapped exit" if t.gapped else ""))
+                print(f"{day}  {trade.symbol:<14} {t.exit_reason:<7} "
+                      f"{t.exit_price:>9.2f}  {o.r_multiple:+.2f}R"
+                      + ("  [AMBIGUOUS]" if t.ambiguous else ""))
+                settled += 1
+            out.append(o)
+
+        if out:
+            store.record_outcomes(day, out)
+
+    print("")
+    print(f"settled {settled} trade(s)"
+          + (f", {skipped} never entered" if skipped else ""))
+    still = store.unrecorded()
+    if still:
+        print(f"{len(still)} day(s) still unrecorded: "
+              + ", ".join(d.isoformat() for d in still[:5]))
+    return 0
+
+
+def _cmd_close(args) -> int:
+    """Record what a human actually did with one trade."""
+    from desk.journal import ExitReason, JournalStore, Outcome
+    from desk.journal.models import IST
+
+    if args.reason not in ExitReason.ALL:
+        print(f"--reason must be one of {list(ExitReason.ALL)}")
+        return 1
+
+    day = date.fromisoformat(args.day)
+    store = JournalStore(Path(args.journal))
+    dec = store.latest(day)
+    if dec is None:
+        print(f"nothing recorded for {day}")
+        return 1
+
+    trade = next((t for t in dec.trades if t.symbol == args.symbol), None)
+    if trade is None:
+        print(f"{args.symbol} is not in the {day} decision. Recorded that "
+              f"day: {', '.join(dec.symbols) or 'nothing'}")
+        return 1
+
+    o = Outcome(decision_date=day, symbol=args.symbol,
+                observed_at=datetime.now(IST), note=args.note)
+    # The DECISION's levels, not whatever the stop is now. R is measured
+    # against the risk that was actually accepted that morning.
+    o.close(price=args.price, on=date.fromisoformat(args.on or args.day),
+            reason=args.reason, entry=trade.entry, stop=trade.stop,
+            qty=trade.qty)
+
+    keep = [x for x in store.outcomes(day) if x.symbol != args.symbol]
+    store.record_outcomes(day, keep + [o])
+    print(f"{day}  {args.symbol}  {args.reason} at {args.price}"
+          + (f"  {o.r_multiple:+.2f}R" if o.r_multiple is not None else "")
+          + (f"  P&L Rs {o.pnl:,.0f}" if o.pnl is not None else ""))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -404,6 +558,29 @@ def main(argv: list[str] | None = None) -> int:
         "news", help="market-wide headlines from RSS, deduplicated")
     nw.add_argument("--out", default="configs/research/news.json")
 
+    se = sub.add_parser(
+        "settle",
+        help="derive outcomes for recorded decisions from price history")
+    se.add_argument("--day", default=None,
+                    help="YYYY-MM-DD; default: every unrecorded day")
+    se.add_argument("--journal", default="configs/journal")
+    se.add_argument("--bhavcopy", default="configs/bhavcopy")
+    se.add_argument("--horizon", type=int, default=5,
+                    help="trading days held before a time exit (default 5)")
+    se.add_argument("--force", action="store_true",
+                    help="re-derive outcomes already on file")
+
+    cl = sub.add_parser(
+        "close", help="record what a HUMAN actually did with one trade")
+    cl.add_argument("--day", required=True, help="the decision date")
+    cl.add_argument("--symbol", required=True)
+    cl.add_argument("--price", type=float, required=True)
+    cl.add_argument("--reason", required=True,
+                    help="target | stop | time | discretion | not_taken")
+    cl.add_argument("--on", default=None, help="exit date; default the day")
+    cl.add_argument("--note", default="")
+    cl.add_argument("--journal", default="configs/journal")
+
     rs = sub.add_parser("research", help="per-symbol research (SLOW)")
     rs.add_argument("symbols", nargs="+")
     rs.add_argument("--out", default="configs/research")
@@ -422,6 +599,12 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_fundamentals(args)
     if args.cmd == "news":
         return _cmd_news(args)
+    # Both read only local files - no session needed, and building a
+    # throttled HTTP client for them would imply otherwise.
+    if args.cmd == "settle":
+        return _cmd_settle(args)
+    if args.cmd == "close":
+        return _cmd_close(args)
 
     session = NseSession()
 

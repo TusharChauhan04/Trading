@@ -1,0 +1,26 @@
+[
+ {
+  "decision_date": "2026-09-11",
+  "symbol": "BHAGYANGR.NS",
+  "observed_at": "2026-09-18T14:44:17.715664+05:30",
+  "status": "closed",
+  "exit_price": 446.5,
+  "exit_date": "2026-09-17",
+  "exit_reason": "time",
+  "pnl": 519.4000000000003,
+  "r_multiple": 0.4516661151268034,
+  "note": "derived from daily bars"
+ },
+ {
+  "decision_date": "2026-09-11",
+  "symbol": "GAYAPROJ.NS",
+  "observed_at": "2026-09-18T14:44:25.527210+05:30",
+  "status": "closed",
+  "exit_price": 25.1,
+  "exit_date": "2026-09-15",
+  "exit_reason": "discretion",
+  "pnl": -395.2499999999999,
+  "r_multiple": -0.3953994461997304,
+  "note": "exited early, market turned"
+ }
+]
