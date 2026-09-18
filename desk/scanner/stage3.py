@@ -238,6 +238,15 @@ def run_stage3(
         result.kept = list(shortlist)
         result.unavailable = [f"Stage 3 did not run - the model errored: {exc}"]
         return result
+    except Exception as exc:                        # noqa: BLE001
+        # Anything else at all - a provider raising its own transport
+        # error, a rate limit surfacing as a SourceError. Stage 3 is an
+        # enrichment layer and MUST NOT be able to fail the day; the
+        # deterministic 98% of the funnel does not depend on it.
+        result.kept = list(shortlist)
+        result.unavailable = [
+            f"Stage 3 did not run - {type(exc).__name__}: {exc}"]
+        return result
 
     result.ran = True
     result.cost_inr = answer.cost_inr

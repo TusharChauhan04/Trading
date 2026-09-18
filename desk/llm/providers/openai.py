@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from desk.llm.base import (
     Completion, LLMError, LLMUnavailable, Message, Usage,
 )
+from desk.marketdata.sources.errors import RateLimited
 
 __all__ = ["DEFAULT_MODEL", "OpenAIProvider"]
 
@@ -98,6 +99,31 @@ class OpenAIProvider:
                 raise LLMUnavailable(
                     f"OpenAI rejected the credentials (HTTP {exc.code}). "
                     f"Stage 3 will be reported as not run.") from exc
+            if exc.code == 429:
+                # OpenAI uses 429 for TWO different things and they need
+                # opposite responses. "rate_limit_exceeded" means slow
+                # down and retry; "insufficient_quota" means the account
+                # has no credits, and retrying that forever accomplishes
+                # nothing except delaying the plan.
+                #
+                # The second is not a failure of the request at all - it
+                # is the capability being absent, the same as a missing
+                # key. Reporting it as "the model errored" sends the
+                # reader looking for a bug in the pipeline when the fix
+                # is to top up the account.
+                lowered = detail.lower()
+                if ("insufficient_quota" in lowered
+                        or "no credits" in lowered
+                        or "exceeded your current quota" in lowered):
+                    raise LLMUnavailable(
+                        "OpenAI reports NO CREDITS on this account, so "
+                        "Stage 3 cannot run. The key itself is valid - add "
+                        "credits at platform.openai.com/settings/organization/"
+                        "billing. Nothing was charged and the deterministic "
+                        "stages are unaffected.") from exc
+                raise RateLimited(
+                    f"OpenAI is rate-limiting (HTTP 429): "
+                    f"{detail[:200]}") from exc
             raise LLMError(
                 f"OpenAI returned HTTP {exc.code}: {detail[:400]}") from exc
         except urllib.error.URLError as exc:

@@ -577,3 +577,98 @@ def test_the_default_model_is_priced(monkeypatch):
     """A default nobody priced would refuse to run on its first real call."""
     from desk.llm.providers.openai import DEFAULT_MODEL
     assert price_for(DEFAULT_MODEL) is not None
+
+
+# =========================================================================
+# 429 means two different things, and they need opposite responses
+# =========================================================================
+
+def _http_error(monkeypatch, status: int, body: bytes):
+    import urllib.error
+    import urllib.request
+
+    def _open(req, timeout=None):
+        raise urllib.error.HTTPError(
+            "https://api.openai.com/v1/chat/completions", status, "err", {},
+            __import__("io").BytesIO(body))
+
+    monkeypatch.setattr(urllib.request, "urlopen", _open)
+
+
+def test_no_credits_is_unavailable_not_an_error(monkeypatch):
+    """REGRESSION from the first real call: the account had no credits and
+    the plan said "the model errored", which sends the reader looking for
+    a bug in the pipeline when the fix is to top up the account.
+
+    It is not a failed request - it is the capability being absent, the
+    same as a missing key.
+    """
+    from desk.llm.providers.openai import OpenAIProvider
+
+    _http_error(monkeypatch, 429, b'{"error":{"message":"You have no '
+                                  b'credits remaining.","code":'
+                                  b'"insufficient_quota"}}')
+    with pytest.raises(LLMUnavailable) as exc:
+        OpenAIProvider(api_key="sk-valid").complete(
+            [Message("user", "u")], max_output_tokens=5, temperature=0.0)
+
+    msg = str(exc.value)
+    assert "NO CREDITS" in msg
+    assert "key itself is valid" in msg, "must not read as a bad key"
+    assert "Nothing was charged" in msg
+    assert "billing" in msg, "the message has to name the fix"
+
+
+def test_a_genuine_rate_limit_is_retryable(monkeypatch):
+    """The other meaning of 429. Retrying THIS one helps; retrying a
+    no-credits account forever only delays the plan."""
+    from desk.marketdata.sources.errors import RateLimited
+
+    from desk.llm.providers.openai import OpenAIProvider
+
+    _http_error(monkeypatch, 429, b'{"error":{"message":"Rate limit '
+                                  b'reached","code":"rate_limit_exceeded"}}')
+    with pytest.raises(RateLimited):
+        OpenAIProvider(api_key="sk-valid").complete(
+            [Message("user", "u")], max_output_tokens=5, temperature=0.0)
+
+
+def test_no_credits_still_lets_the_day_produce_a_plan(tmp_path, monkeypatch):
+    """Stage 3 is an enrichment layer. Whatever the provider does, the
+    deterministic 98% of the funnel must still answer."""
+    from desk.llm.providers.openai import OpenAIProvider
+
+    _http_error(monkeypatch, 429, b'{"error":{"code":"insufficient_quota"}}')
+    client = MeteredClient(provider=OpenAIProvider(api_key="sk-valid"),
+                           meter=_meter(tmp_path))
+    out = run_stage3(_stage2(), client=client)
+
+    assert out.ran is False
+    assert out.kept == ["AAA.NS", "BBB.NS", "CCC.NS"], \
+        "the shortlist must pass through untouched"
+    assert any("NO CREDITS" in u for u in out.unavailable)
+
+
+def test_nothing_is_charged_when_the_call_fails(tmp_path, monkeypatch):
+    """record() runs only after a successful completion, so a refused
+    request must leave the ledger empty."""
+    from desk.llm.providers.openai import OpenAIProvider
+
+    _http_error(monkeypatch, 429, b'{"error":{"code":"insufficient_quota"}}')
+    client = MeteredClient(provider=OpenAIProvider(api_key="sk-valid"),
+                           meter=_meter(tmp_path))
+    run_stage3(_stage2(), client=client)
+    assert client.meter.entries() == []
+    assert client.meter.month_to_date_inr() == 0
+
+
+def test_no_provider_error_can_fail_the_day(tmp_path):
+    """Stage 3 catches everything. A provider raising its own transport
+    type - a SourceError, say - must not take the plan with it."""
+    from desk.marketdata.sources.errors import RateLimited
+
+    provider = ScriptedProvider(fail_with=RateLimited("slow down"))
+    client = MeteredClient(provider=provider, meter=_meter(tmp_path))
+    out = run_stage3(_stage2(), client=client)
+    assert out.ran is False
+    assert out.kept == ["AAA.NS", "BBB.NS", "CCC.NS"]
