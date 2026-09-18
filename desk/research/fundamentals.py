@@ -47,7 +47,13 @@ from datetime import date, datetime, timedelta
 
 import pandas as pd
 
-from desk.research.store import FilingStore, StoredFiling, at_open
+import logging
+
+from desk.research.store import (
+    FilingStore, StoredFiling, StoreError, at_open,
+)
+
+log = logging.getLogger(__name__)
 
 __all__ = ["COLUMNS", "CachedFundamentals", "DEFAULT_MAX_STALENESS_DAYS",
            "FundamentalsCache", "build_table", "latest_comparable"]
@@ -123,14 +129,29 @@ def build_table(store: FilingStore, symbols, *, as_of: datetime | date
 
     rows: dict[str, dict] = {}
     coverage = {"no filings on file": 0, "no quarterly numbers": 0,
-                "no year-ago comparison": 0, "complete": 0}
+                "no year-ago comparison": 0, "complete": 0,
+                "unreadable": 0}
 
     for raw in symbols:
         base = raw.split(".")[0].upper()
         try:
             recs = store.for_symbol(base, as_of=as_of, months=3)
-        except Exception:
+        except StoreError:
+            # EXPECTED: no directory for this symbol, or a name the store
+            # refuses. Genuinely "nothing on file".
             coverage["no filings on file"] += 1
+            continue
+        except Exception as exc:                    # noqa: BLE001
+            # UNEXPECTED, and counted separately ON PURPOSE. A bare
+            # `except Exception` here used to fold every failure into
+            # "no filings on file", which is the exact shape of the two
+            # worst bugs this project has had: an AttributeError reported
+            # as "no price history for this symbol", and a broken join
+            # reported as "438 of 438 have no filing". Both were real
+            # errors wearing a data problem's clothes, and both survived
+            # because the disguise was plausible.
+            log.warning("fundamentals: %s could not be read: %s", base, exc)
+            coverage["unreadable"] += 1
             continue
         if not recs:
             coverage["no filings on file"] += 1

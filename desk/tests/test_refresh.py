@@ -393,3 +393,219 @@ def test_a_fully_cached_range_asks_for_nothing(monkeypatch, tmp_path):
     assert backfill_bhavcopy(s, date(2026, 9, 7), date(2026, 9, 8),
                              tmp_path) == 0
     assert s.asked == []
+
+
+# ===========================================================================
+# refresh_crosscheck - the command that PRODUCES the report
+# ===========================================================================
+#
+# Found by auditing for public functions nothing references: the endpoint
+# that SERVES the cross-check was tested, and the command that produces it
+# had zero tests. It had been written, wired and run live against NSE and
+# BSE - which is three of the four conditions for done, and the missing
+# one is the one that catches a regression.
+
+import json as _json
+
+from desk.marketdata.isin import IsinMap
+from desk.marketdata.refresh import refresh_crosscheck
+
+
+class _StubNse:
+    """Stands in for NseSession. Named distinctly from this file's own
+    _FakeSession, which serves the calendar tests and takes a payload."""
+
+    def fetch_with_retry(self, fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    def fetch_equity_master(self):
+        return b"\n".join([
+            b"SYMBOL,NAME OF COMPANY,SERIES,ISIN NUMBER",
+            b"AAA,A Ltd,EQ,INE000A01001",
+            b"",
+        ])
+
+
+class _StubBse:
+    """Stands in for BseSession, which refresh_crosscheck constructs
+    internally - so it is patched at the module it is imported from."""
+
+    def __init__(self, raw=b"", fail=None):
+        self.raw = raw
+        self.fail = fail
+        self.calls = 0
+
+    def fetch_with_retry(self, fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    def fetch_bhavcopy(self, day):
+        self.calls += 1
+        if self.fail:
+            raise self.fail
+        return self.raw
+
+
+def _bse_csv(rows):
+    """rows: (isin, ticker, close, turnover)."""
+    head = ("TradDt,BizDt,Sgmt,Src,FinInstrmTp,FinInstrmId,ISIN,TckrSymb,"
+            "SctySrs,XpryDt,FininstrmActlXpryDt,StrkPric,OptnTp,FinInstrmNm,"
+            "OpnPric,HghPric,LwPric,ClsPric,LastPric,PrvsClsgPric,"
+            "UndrlygPric,SttlmPric,OpnIntrst,ChngInOpnIntrst,TtlTradgVol,"
+            "TtlTrfVal,TtlNbOfTxsExctd,SsnId,NewBrdLotQty,Rmks,Rsvd1,Rsvd2,"
+            "Rsvd3,Rsvd4\n")
+    body = "".join(
+        f"2026-09-17,2026-09-17,CM,BSE,STK,1,{isin},{tkr},A,,,,,{tkr} LTD,"
+        f"{close},{close},{close},{close},{close},{close},,{close},,,1000,"
+        f"{turn},10,F1,1,,,,,\n"
+        for isin, tkr, close, turn in rows)
+    return (head + body).encode()
+
+
+def _nse_snapshot(tmp_path, rows):
+    """rows: (symbol, close)."""
+    import pandas as pd
+    d = tmp_path / "bhavcopy"
+    d.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({
+        "symbol": [s for s, _ in rows], "series": ["EQ"] * len(rows),
+        "date": [date(2026, 9, 17)] * len(rows),
+        "open": [c for _, c in rows], "high": [c for _, c in rows],
+        "low": [c for _, c in rows], "close": [c for _, c in rows],
+        "volume": [100000] * len(rows), "turnover_lacs": [500.0] * len(rows),
+    }).to_parquet(d / "2026-09-17.parquet", index=False)
+    return d
+
+
+def _isin_file(tmp_path, mapping):
+    p = tmp_path / "isin.json"
+    IsinMap(by_symbol=mapping,
+            by_isin={v: k for k, v in mapping.items()}).save(p)
+    return p
+
+
+def _run(tmp_path, monkeypatch, *, bse_rows, nse_rows, mapping, fail=None):
+    from desk.marketdata.sources import bse as bse_mod
+
+    stub = _StubBse(_bse_csv(bse_rows), fail=fail)
+    monkeypatch.setattr(bse_mod, "BseSession", lambda *a, **k: stub)
+    out = tmp_path / "crosscheck"
+    rc = refresh_crosscheck(
+        _StubNse(), date(2026, 9, 17), out,
+        bhavcopy_dir=_nse_snapshot(tmp_path, nse_rows),
+        isin_path=_isin_file(tmp_path, mapping))
+    return rc, out / "2026-09-17.json", stub
+
+
+def test_a_clean_crosscheck_writes_a_report(tmp_path, monkeypatch):
+    rc, report, _ = _run(
+        tmp_path, monkeypatch,
+        nse_rows=[("AAA.NS", 100.0)],
+        bse_rows=[("INE000A01001", "AAA", 100.0, 5e7)],
+        mapping={"AAA": "INE000A01001"})
+
+    assert rc == 0
+    assert report.is_file()
+    body = _json.loads(report.read_text(encoding="utf-8"))
+    assert body["as_of"] == "2026-09-17"
+    assert body["coverage"]["checkable"] == 1
+    assert body["disagreements"] == []
+
+
+def test_a_disagreement_is_recorded(tmp_path, monkeypatch):
+    rc, report, _ = _run(
+        tmp_path, monkeypatch,
+        nse_rows=[("AAA.NS", 100.0)],
+        bse_rows=[("INE000A01001", "AAA", 130.0, 5e7)],
+        mapping={"AAA": "INE000A01001"})
+
+    body = _json.loads(report.read_text(encoding="utf-8"))
+    assert len(body["disagreements"]) == 1
+    assert body["disagreements"][0]["symbol"] == "AAA.NS"
+    assert body["disagreements"][0]["diff_pct"] > 20
+    assert rc == 0, ("a price disagreement is a WARNING for the plan to "
+                     "surface, not a failed refresh - both exchanges are "
+                     "real and a scheduled run must not look broken")
+
+
+def test_a_thin_bse_name_is_not_checked_rather_than_cleared(tmp_path,
+                                                            monkeypatch):
+    """Below the liquidity gate the BSE close is one trade, not an
+    independent measurement. Agreeing with it is not corroboration."""
+    rc, report, _ = _run(
+        tmp_path, monkeypatch,
+        nse_rows=[("AAA.NS", 100.0)],
+        bse_rows=[("INE000A01001", "AAA", 140.0, 1000.0)],   # ~nothing traded
+        mapping={"AAA": "INE000A01001"})
+
+    body = _json.loads(report.read_text(encoding="utf-8"))
+    assert body["coverage"]["thin_on_bse"] == 1
+    assert body["coverage"]["checkable"] == 0
+    assert body["disagreements"] == [], "a thin print must not raise a flag"
+
+
+def test_the_coverage_buckets_add_up(tmp_path, monkeypatch):
+    """A coverage report that does not balance is hiding a case."""
+    rc, report, _ = _run(
+        tmp_path, monkeypatch,
+        nse_rows=[("AAA.NS", 100.0), ("BBB.NS", 50.0), ("NOISIN.NS", 10.0)],
+        bse_rows=[("INE000A01001", "AAA", 100.0, 5e7)],
+        mapping={"AAA": "INE000A01001", "BBB": "INE111A01011"})
+
+    cov = _json.loads(report.read_text(encoding="utf-8"))["coverage"]
+    assert cov["balanced"] is True
+    assert (cov["checkable"] + cov["no_isin"] + cov["not_on_bse"]
+            + cov["thin_on_bse"] + cov["no_usable_close"]
+            + cov["ambiguous_isin"]) == cov["nse_symbols"]
+
+
+def test_a_missing_nse_snapshot_names_the_command(tmp_path, monkeypatch):
+    from desk.marketdata.sources import bse as bse_mod
+    monkeypatch.setattr(bse_mod, "BseSession", lambda *a, **k: _StubBse(b""))
+    (tmp_path / "bhavcopy").mkdir()
+    rc = refresh_crosscheck(_StubNse(), date(2026, 9, 17),
+                            tmp_path / "out",
+                            bhavcopy_dir=tmp_path / "bhavcopy",
+                            isin_path=_isin_file(tmp_path, {"A": "INE000A01001"}))
+    assert rc == 1
+
+
+def test_a_bse_failure_does_not_write_a_half_report(tmp_path, monkeypatch):
+    """Better no report than one the plan would read as a clean check."""
+    from desk.marketdata.sources.errors import SourceError
+
+    rc, report, _ = _run(
+        tmp_path, monkeypatch,
+        nse_rows=[("AAA.NS", 100.0)], bse_rows=[],
+        mapping={"AAA": "INE000A01001"},
+        fail=SourceError("BSE returned HTTP 503"))
+
+    assert rc == 1
+    assert not report.exists()
+
+
+def test_the_isin_map_is_reused_not_refetched(tmp_path, monkeypatch):
+    """It changes on listings, not daily - refetching NSE's equity master
+    on every cross-check would be a request for nothing."""
+    from desk.marketdata.sources import bse as bse_mod
+
+    calls = []
+
+    class _CountingNse(_StubNse):
+        def fetch_with_retry(self, fn, *a, **k):
+            calls.append(1)
+            return fn(*a, **k)
+
+    stub = _StubBse(_bse_csv([("INE000A01001", "AAA", 100.0, 5e7)]))
+    monkeypatch.setattr(bse_mod, "BseSession", lambda *a, **k: stub)
+    refresh_crosscheck(_CountingNse(), date(2026, 9, 17), tmp_path / "out",
+                       bhavcopy_dir=_nse_snapshot(tmp_path, [("AAA.NS", 100.0)]),
+                       isin_path=_isin_file(tmp_path, {"AAA": "INE000A01001"}))
+    assert calls == [], "an existing ISIN map must not trigger a fetch"
+
+
+def test_the_report_is_written_atomically(tmp_path, monkeypatch):
+    _run(tmp_path, monkeypatch,
+         nse_rows=[("AAA.NS", 100.0)],
+         bse_rows=[("INE000A01001", "AAA", 100.0, 5e7)],
+         mapping={"AAA": "INE000A01001"})
+    assert not list((tmp_path / "crosscheck").glob("*.tmp"))
