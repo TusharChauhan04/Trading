@@ -487,8 +487,26 @@ def _regime_caveats(measured) -> list[str]:
     return out
 
 
-def _event_calendar(as_of: date):
+def _event_calendar(as_of: date, today: date | None = None):
     """(calendar, caveats) for the earnings gate.
+
+    `today` is the DECISION date and it is the one staleness is measured
+    against - not `as_of`, which is the date of the DATA being scanned.
+    Getting that backwards made this gate fire exactly never.
+
+    The two dates are always different in live use: bhavcopy for day D is
+    published after D closes, so a plan built on D's bars is decided on
+    D+1 at the earliest. Comparing the calendar's fetch time against D
+    therefore made every calendar look like it came "from the future",
+    and the look-ahead guard refused all of them - silently removing the
+    gate described as the highest safety-per-hour item in the plan.
+
+    The distinction that was collapsed: THE CALENDAR IS FORWARD-LOOKING.
+    For a live plan today's calendar is the actual schedule of what is
+    coming, which is the whole point of consulting it. Look-ahead only
+    arises in a HISTORICAL REPLAY, where a calendar fetched later really
+    does contain intimations published after the simulated date - and the
+    backtest passes its simulated date as `today`, so it stays protected.
 
     Returns None for the calendar in BOTH the missing and the stale case,
     but with different caveats, because they are different failures. A
@@ -499,7 +517,7 @@ def _event_calendar(as_of: date):
     is a FALSE CLEAR, so a stale file is treated as absent rather than used.
     """
     stored = load_calendar(CONFIGS / "research" / "event_calendar.json",
-                           as_of=as_of)
+                           as_of=today or _today_ist())
     if stored is None:
         return None, ["no event calendar on file, so the earnings gate did "
                       "NOT run - a name reporting inside the holding window "
@@ -1413,22 +1431,28 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
         # not check - and so Stage 3 sees real figures instead of the
         # "not available" placeholder.
         #
-        # THE HARD FILTERS ARE DELIBERATELY NOT SET HERE. max_filing_age_days
-        # and min_net_margin_pct decide which companies are tradeable, which
-        # is a policy choice rather than an engineering default, and picking
-        # one silently would change what the desk trades without anyone
-        # choosing it. Measured on real data: every filing currently on file
-        # is 582-610 days old, so a plausible-looking age filter of 200 days
-        # would exclude the ENTIRE universe and return NO TRADE every day
-        # while looking like it was working.
+        # THE HARD FILTERS COME FROM THE ENVIRONMENT AND DEFAULT TO OFF.
+        # max_filing_age_days and min_net_margin_pct decide which companies
+        # are tradeable, which is a policy choice rather than an engineering
+        # default - so they are settable in .env without a code change and
+        # nothing is applied until someone chooses a value.
+        #
+        # Measured, and the reason a "sensible" default would be wrong:
+        # every filing currently on disk is 555-616 days old, because NSE's
+        # results endpoint returns nothing newer than Jan 2025. A
+        # plausible-looking 200-day age filter would exclude the ENTIRE
+        # universe and return NO TRADE every day while appearing to work.
         fundamentals, fundamental_caveats = _fundamentals(as_of)
-        stage2 = run_stage2(stage1, regime=regime, fundamentals=fundamentals)
+        cfg = Settings.from_env()
+        stage2 = run_stage2(stage1, regime=regime, fundamentals=fundamentals,
+                            max_filing_age_days=cfg.max_filing_age_days,
+                            min_net_margin_pct=cfg.min_net_margin_pct)
 
         # R4's event gate and R7's narrative pass. Both are OPTIONAL by
         # construction and both declare themselves when absent, so this
         # endpoint answers every day whether or not a calendar has been
         # refreshed and whether or not an LLM key is configured.
-        events, event_caveats = _event_calendar(as_of)
+        events, event_caveats = _event_calendar(as_of, today=today)
         news, news_caveats = _news()
         # use_llm=False is how the BACKTEST switches Stage 3 off, and it
         # is not a convenience. run_backtest reaches Stage 3 through this

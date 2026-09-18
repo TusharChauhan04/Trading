@@ -212,3 +212,70 @@ def test_dotenv_is_gitignored():
     root = Path(__file__).resolve().parents[2]
     ignore = (root / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert ".env" in [ln.strip() for ln in ignore]
+
+
+# --- the fundamental filters, which are policy not defaults --------------
+
+def test_the_filters_are_off_unless_set():
+    """Measured reason, not caution: every filing on disk is 555-616 days
+    old because NSE's results endpoint stops at Jan 2025, so a
+    plausible-looking 200-day threshold would exclude the ENTIRE universe
+    and return NO TRADE every day while appearing to work."""
+    s = Settings.from_env(env_file=None)
+    assert s.max_filing_age_days is None
+    assert s.min_net_margin_pct is None
+
+
+def test_a_blank_value_means_off_not_zero(monkeypatch):
+    """`DESK_MIN_NET_MARGIN_PCT=` in the template must disable the filter,
+    not set a 0% floor - those do very different things."""
+    monkeypatch.setenv("DESK_MIN_NET_MARGIN_PCT", "")
+    monkeypatch.setenv("DESK_MAX_FILING_AGE_DAYS", "   ")
+    s = Settings.from_env(env_file=None)
+    assert s.min_net_margin_pct is None
+    assert s.max_filing_age_days is None
+
+
+def test_zero_is_a_real_margin_floor_not_off(monkeypatch):
+    """0% drops loss-making companies. It is meaningful and must survive."""
+    monkeypatch.setenv("DESK_MIN_NET_MARGIN_PCT", "0")
+    assert Settings.from_env(env_file=None).min_net_margin_pct == 0.0
+
+
+def test_a_negative_margin_floor_is_allowed(monkeypatch):
+    """-5 is a legitimate choice: tolerate a small loss, exclude a big one."""
+    monkeypatch.setenv("DESK_MIN_NET_MARGIN_PCT", "-5")
+    assert Settings.from_env(env_file=None).min_net_margin_pct == -5.0
+
+
+def test_a_mistyped_filter_raises_rather_than_turning_itself_off(monkeypatch):
+    """A filter that quietly stops running is worse than one that fails -
+    the operator believes it is still screening."""
+    monkeypatch.setenv("DESK_MAX_FILING_AGE_DAYS", "200 days")
+    with pytest.raises(ValueError, match="whole number"):
+        Settings.from_env(env_file=None)
+
+
+def test_a_nonsense_margin_raises(monkeypatch):
+    monkeypatch.setenv("DESK_MIN_NET_MARGIN_PCT", "ten percent")
+    with pytest.raises(ValueError, match="not a number"):
+        Settings.from_env(env_file=None)
+
+
+def test_describe_shows_whether_each_filter_is_on(monkeypatch):
+    off = "\n".join(Settings.from_env(env_file=None).describe())
+    assert "DESK_MAX_FILING_AGE_DAYS  OFF" in off
+    monkeypatch.setenv("DESK_MAX_FILING_AGE_DAYS", "400")
+    monkeypatch.setenv("DESK_MIN_NET_MARGIN_PCT", "0")
+    on = "\n".join(Settings.from_env(env_file=None).describe())
+    assert "400" in on and "0%" in on
+
+
+def test_the_funnel_reads_the_filters_from_settings():
+    """Wired, not merely available - the point of the whole exercise."""
+    import inspect
+
+    from desk.api import main as api
+    src = inspect.getsource(api._run_funnel)
+    assert "max_filing_age_days=cfg.max_filing_age_days" in src
+    assert "min_net_margin_pct=cfg.min_net_margin_pct" in src

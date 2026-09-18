@@ -98,6 +98,21 @@ class Settings:
     usd_inr: Decimal = Decimal("90.00")
     default_capital: float = DEFAULT_CAPITAL
     risk_reward: float = DEFAULT_RISK_REWARD
+    max_filing_age_days: int | None = None
+    """Exclude a name whose newest filing is older than this. None = OFF.
+
+    OFF BY DEFAULT ON PURPOSE, and the reason is measured rather than
+    cautious: every filing currently on disk is 555-616 days old, because
+    NSE's results endpoint returns nothing newer than Jan 2025. A
+    sensible-looking 200-day threshold would therefore exclude the ENTIRE
+    universe and return NO TRADE every day while appearing to work. Check
+    the age distribution that `refresh fundamentals` prints before setting
+    it."""
+    min_net_margin_pct: float | None = None
+    """Exclude a name whose net margin is below this. None = OFF. 0.0 is
+    the obvious first choice - it drops loss-making companies - and it is
+    still a policy decision about what the desk will trade, not a default
+    worth choosing on someone's behalf."""
     config_dir: Path | None = None
 
     @classmethod
@@ -112,6 +127,8 @@ class Settings:
             usd_inr=_decimal("DESK_USD_INR", Decimal("90.00")),
             default_capital=_float("DESK_DEFAULT_CAPITAL", DEFAULT_CAPITAL),
             risk_reward=_float("DESK_RISK_REWARD", DEFAULT_RISK_REWARD),
+            max_filing_age_days=_opt_int("DESK_MAX_FILING_AGE_DAYS"),
+            min_net_margin_pct=_opt_float("DESK_MIN_NET_MARGIN_PCT"),
             config_dir=(Path(os.environ["DESK_CONFIG_DIR"])
                         if os.environ.get("DESK_CONFIG_DIR") else None),
         )
@@ -129,6 +146,12 @@ class Settings:
             f"DESK_USD_INR              {self.usd_inr}",
             f"DESK_DEFAULT_CAPITAL      Rs {self.default_capital:,.0f}",
             f"DESK_RISK_REWARD          1:{self.risk_reward:g}",
+            f"DESK_MAX_FILING_AGE_DAYS  "
+            + (f"{self.max_filing_age_days}"
+               if self.max_filing_age_days is not None else "OFF"),
+            f"DESK_MIN_NET_MARGIN_PCT   "
+            + (f"{self.min_net_margin_pct:g}%"
+               if self.min_net_margin_pct is not None else "OFF"),
         ]
 
 
@@ -149,6 +172,38 @@ def _decimal(name: str, fallback: Decimal) -> Decimal:
     if value < 0:
         raise ValueError(f"{name} must not be negative, got {value}")
     return value
+
+
+def _opt_int(name: str) -> int | None:
+    """An UNSET filter is None, not zero. The difference decides whether a
+    threshold is applied at all, and a mistyped one must not silently
+    become 'off' - that would remove a filter the operator believes is
+    running."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        raise ValueError(
+            f"{name}={raw!r} is not a whole number. Unset it to turn the "
+            f"filter off - it will not be guessed at, because a filter "
+            f"that quietly stops running is worse than one that fails.") from None
+    if value <= 0:
+        raise ValueError(f"{name} must be positive, got {value}")
+    return value
+
+
+def _opt_float(name: str) -> float | None:
+    """Unset is None. Zero is a MEANINGFUL value here - a 0% margin floor
+    drops loss-making companies - so it must not be confused with off."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return float(raw.strip())
+    except ValueError:
+        raise ValueError(f"{name}={raw!r} is not a number") from None
 
 
 def _float(name: str, fallback: float) -> float:

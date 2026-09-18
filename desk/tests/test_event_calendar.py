@@ -264,3 +264,73 @@ def test_an_ordinary_stale_calendar_is_not_called_look_ahead(tmp_path):
     stored = load_calendar(p, as_of=DAY)
     assert stored.stale and not stored.from_the_future
     assert "look-ahead" not in stored.caveat
+
+
+# --- the bug that made this gate fire exactly never ----------------------
+
+def test_a_live_plan_uses_todays_calendar(tmp_path, monkeypatch):
+    """REGRESSION, and it silenced R4 completely in production.
+
+    Staleness was measured against `as_of` - the date of the DATA being
+    scanned - instead of against the DECISION date. Those are always
+    different in live use: bhavcopy for day D publishes after D closes, so
+    a plan built on D's bars is decided on D+1 at the earliest. Every
+    calendar therefore looked like it came "from the future" and the
+    look-ahead guard refused all of them.
+
+    The calendar is FORWARD-LOOKING. For a live plan, today's calendar is
+    the actual schedule of what is coming - that is the point of it.
+    """
+    from desk.api import main as api
+    (tmp_path / "research").mkdir()
+    save_calendar(_events(), tmp_path / "research" / "event_calendar.json",
+                  fetched_at=datetime(2026, 9, 18, 8, tzinfo=IST))
+    monkeypatch.setattr(api, "CONFIGS", tmp_path)
+
+    # Scanning the 17th's bars, deciding on the 18th - the normal case.
+    cal, caveats = api._event_calendar(date(2026, 9, 17),
+                                       today=date(2026, 9, 18))
+    assert cal is not None, "the live gate must use today's calendar"
+    assert caveats == []
+
+
+def test_a_replay_still_refuses_a_calendar_from_after_the_simulated_day(
+        tmp_path, monkeypatch):
+    """The protection that the fix must NOT remove. In a replay the
+    simulated date is passed as `today`, and a calendar fetched later
+    genuinely holds intimations the market had not seen."""
+    from desk.api import main as api
+    (tmp_path / "research").mkdir()
+    save_calendar(_events(), tmp_path / "research" / "event_calendar.json",
+                  fetched_at=datetime(2026, 9, 18, 8, tzinfo=IST))
+    monkeypatch.setattr(api, "CONFIGS", tmp_path)
+
+    cal, caveats = api._event_calendar(date(2026, 9, 1), today=date(2026, 9, 1))
+    assert cal is None
+    assert "look-ahead protection" in caveats[0]
+
+
+def test_the_backtest_passes_its_simulated_date_as_today():
+    """Which is what keeps the replay protected after the fix."""
+    import inspect
+
+    from desk.backtest import engine
+    code = [ln.split("#")[0]
+            for ln in inspect.getsource(engine.run_backtest).splitlines()]
+    assert any("today=day" in ln for ln in code)
+
+
+def test_a_genuinely_old_calendar_is_still_refused_live(tmp_path, monkeypatch):
+    """The fix changes WHICH date staleness is measured against, not
+    whether staleness matters. A calendar nobody has refreshed in weeks is
+    still refused."""
+    from desk.api import main as api
+    (tmp_path / "research").mkdir()
+    save_calendar(_events(), tmp_path / "research" / "event_calendar.json",
+                  fetched_at=datetime(2026, 8, 20, 8, tzinfo=IST))
+    monkeypatch.setattr(api, "CONFIGS", tmp_path)
+
+    cal, caveats = api._event_calendar(date(2026, 9, 17),
+                                       today=date(2026, 9, 18))
+    assert cal is None
+    assert "too old to trust" in caveats[0]
