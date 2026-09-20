@@ -53,6 +53,7 @@ from datetime import date
 from desk.backtest.costs import CostModel
 from desk.backtest.simulate import SimulatedTrade, simulate_trade
 from desk.contracts.enums import Regime
+from desk.scanner.stage1 import REQUIRED_BARS
 
 __all__ = ["BacktestResult", "DayResult", "run_backtest"]
 
@@ -260,6 +261,19 @@ def run_backtest(store, *, start: date, end: date, capital: float = 1_000_000,
     forward = store.history(as_of=available[-1], start=sessions[0],
                             columns=["open", "high", "low", "close"])
 
+    # And the BACKWARD window the funnel itself needs, loaded once for the
+    # whole replay. `_run_funnel` used to call store.history() per session,
+    # and consecutive sessions ask for windows overlapping by 119 of 120
+    # files - so the same parquet bytes were re-scanned up to 120 times
+    # each, measured at 373ms a call. One full-range load is 3.4s and
+    # ~328MB for all 738 sessions on disk.
+    #
+    # The forward frame above already got this treatment; the lookback
+    # window never did, which is the single largest cost in a replay.
+    lookback_start = available[max(0, available.index(sessions[0]) - lookback)]
+    prefetched = store.history(as_of=sessions[-1], start=lookback_start,
+                               columns=list(REQUIRED_BARS))
+
     for i, day in enumerate(sessions, 1):
         if progress:
             progress(i, len(sessions), day)
@@ -277,7 +291,7 @@ def run_backtest(store, *, start: date, end: date, capital: float = 1_000_000,
                                   # NOT negotiable - see the module
                                   # docstring. A replay must never reach a
                                   # provider, key configured or not.
-                                  use_llm=False)
+                                  use_llm=False, prefetched=prefetched)
         except Exception as exc:                      # noqa: BLE001
             result.days.append(DayResult(as_of=day, error=str(exc)[:200]))
             continue

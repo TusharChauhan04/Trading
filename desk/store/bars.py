@@ -152,6 +152,76 @@ class History:
         one = self.frame[self.frame["symbol"] == symbol]
         return one.drop(columns=["symbol"]).set_index("date").sort_index()
 
+    def window(self, *, as_of: date, lookback: int | None = None,
+               symbols: list[str] | set[str] | None = None) -> "History":
+        """A narrower History carved out of this one, with no disk access.
+
+        WHY THIS EXISTS: the backtest replays the funnel once per session,
+        and `_run_funnel` called `store.history(...)` fresh every time.
+        Consecutive sessions ask for windows overlapping by 119 of 120
+        files, so the same parquet bytes were re-scanned up to 120 times
+        each - measured at 373ms per call, which over a 740-session replay
+        is around 276 SECONDS of pure duplicate I/O and grows with every
+        trading day added.
+
+        A single full-range load costs 3.4s and 328MB for all 738 sessions
+        on disk, so the replay can read once and slice here instead.
+        `desk/backtest/engine.py` already does exactly this for the
+        FORWARD price data; this is the same treatment for the backward
+        lookback window, which never got it.
+
+        The win is real but modest, and worth stating honestly: 65ms per
+        slice against 158ms for a warm disk read and 373ms cold. Over a
+        740-session replay that is roughly 48s instead of 117-276s - a
+        2.4x to 5.7x improvement, not the two orders of magnitude a
+        cache usually implies.
+
+        The point-in-time guarantee is preserved rather than assumed: rows
+        after `as_of` are dropped here, and the caller is expected to have
+        loaded a range whose end it is entitled to see. That is weaker
+        than `history()`'s filename-level exclusion - which never OPENS a
+        later file - so this is for a replay that has already fixed its
+        decisions, never for serving a live plan.
+        """
+        if self.frame.empty:
+            return History(frame=self.frame.copy(), coverage=self.coverage)
+
+        # A PLAIN MASK, deliberately. A searchsorted positional slice on
+        # a date-sorted frame was tried and MEASURED SLOWER (72ms vs
+        # 65ms): the cost here is dominated by materialising the ~179k-row
+        # window and its symbol filter, not by locating the date range, so
+        # the clever version bought nothing and cost a second code path.
+        frame = self.frame
+        mask = frame["date"] <= as_of
+        if symbols is not None:
+            mask &= frame["symbol"].isin(set(symbols))
+        frame = frame[mask]
+
+        if lookback is not None and not frame.empty:
+            # Sessions, not calendar days - the same unit `history()` uses.
+            days = sorted(frame["date"].unique())
+            if len(days) > lookback:
+                frame = frame[frame["date"] >= days[-lookback]]
+
+        frame = frame.reset_index(drop=True)
+        if frame.empty:
+            return History(frame=frame,
+                           coverage=replace(self.coverage, start=None,
+                                            end=None, days_loaded=0))
+
+        present = sorted(frame["date"].unique())
+        truncated = lookback is not None and len(present) < lookback
+        return History(
+            frame=frame,
+            # Recomputed, not inherited. Reusing the parent's coverage
+            # would report the whole loaded range as this window's, and a
+            # caller checking `days_loaded` before trusting a 50-bar
+            # average would be told about bars that are not in the frame.
+            coverage=replace(self.coverage, start=present[0],
+                             end=present[-1], days_loaded=len(present),
+                             truncated=truncated),
+        )
+
     def wide(self, field_name: str) -> pd.DataFrame:
         """A date x symbol matrix of one field, for cross-sectional work
         (relative strength, breadth, correlation). Missing cells stay NaN -

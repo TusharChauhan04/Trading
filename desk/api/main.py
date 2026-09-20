@@ -1380,7 +1380,8 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
                 stop_atrs: float = 2.0,
                 holding_days: int = 5,
                 use_llm: bool = True,
-                shuffle: int | None = None) -> ScanSummary | None:
+                shuffle: int | None = None,
+                prefetched=None) -> ScanSummary | None:
     """The whole scanner, reduced to the primitives build_plan takes.
 
     Returns None when no snapshot exists for the day - build_plan turns that
@@ -1414,8 +1415,18 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
     try:
         stage0 = run_stage0(store.load_day(as_of))
         survivors = stage0.survivors["symbol"].tolist()
-        history = store.history(as_of=as_of, lookback=lookback,
-                                symbols=survivors, columns=list(REQUIRED_BARS))
+        # `prefetched` is the BACKTEST's preloaded range, sliced in memory
+        # instead of re-read per session. Consecutive replay days overlap
+        # by 119 of 120 files, so reading each day cost 373ms to fetch
+        # bars it had already fetched. Live callers pass nothing and read
+        # from disk as before.
+        if prefetched is not None:
+            history = prefetched.window(as_of=as_of, lookback=lookback,
+                                        symbols=survivors)
+        else:
+            history = store.history(as_of=as_of, lookback=lookback,
+                                    symbols=survivors,
+                                    columns=list(REQUIRED_BARS))
 
         # MEASURE the regime rather than being told it, unless a caller
         # deliberately overrode it. A hand-chosen regime is worse than

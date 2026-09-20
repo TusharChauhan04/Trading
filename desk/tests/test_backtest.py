@@ -383,4 +383,12 @@ def test_the_engine_loads_forward_prices_once_not_per_trade():
             inspect.getsource(engine.run_backtest).splitlines()]
     assert not any("store.series(" in ln for ln in code),         "series() is not a BarStore method"
     assert any("forward.series(" in ln for ln in code)
-    assert sum(1 for ln in code if "store.history(" in ln) == 1,         "prices must be read once for the run, not per proposal"
+
+    # Both reads - the forward prices for exit simulation and the
+    # backward lookback window the funnel needs - must happen BEFORE the
+    # per-session loop. Counting calls is the wrong assertion (there are
+    # legitimately two); what matters is that neither is inside the loop.
+    loop_at = next(i for i, ln in enumerate(code)
+                   if ln.strip().startswith("for i, day in enumerate("))
+    assert not any("store.history(" in ln for ln in code[loop_at:]),         "a price read inside the session loop re-scans overlapping files"
+    assert sum(1 for ln in code[:loop_at] if "store.history(" in ln) == 2,         "expected exactly two hoisted reads: forward prices and lookback"
