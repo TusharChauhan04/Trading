@@ -51,6 +51,19 @@ class ScanSummary(BaseModel):
     considered: int = 0
     trades: list["PlanTrade"] = Field(default_factory=list)
     no_trade_reason: str | None = None
+    vetoed: dict[str, str] = Field(default_factory=dict)
+    """Names Stage 3 removed, symbol -> the reason it gave.
+
+    Carried through because it was being COMPUTED AND DISCARDED. On a day
+    where 2 trades are approved out of 8 shortlisted, the plan showed the
+    2 and nothing else - no way to see which 6 the narrative pass vetoed
+    or why. This codebase is otherwise disciplined about the difference
+    between "not checked" and "checked and rejected"; this was the one
+    place it dropped it."""
+    rejected: list[tuple[str, str]] = Field(default_factory=list)
+    """(symbol, reason) for every name the RISK GATE refused. Same
+    reasoning: `Stage4Result.rejected` names each one with a
+    RejectReason, and none of it reached the reader."""
     regime_state: "RegimeState | None" = None
     """The regime the scan ACTUALLY measured.
 

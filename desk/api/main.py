@@ -1544,6 +1544,9 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
 
     return ScanSummary(
         regime_state=measured,
+        vetoed=dict(stage3.vetoed),
+        rejected=[(sz.symbol, ", ".join(r.value for r in sz.reasons))
+                  for sz in stage4.rejected],
         universe_scanned=stage0.universe_in,
         survived_stage0=stage0.universe_out,
         survived_stage1=len(stage1.flagged),

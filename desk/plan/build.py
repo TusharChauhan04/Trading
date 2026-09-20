@@ -13,9 +13,73 @@ from __future__ import annotations
 from datetime import date
 
 from desk.marketdata.calendar_in import CalendarNotLoaded, TradingCalendar
-from desk.plan.models import DailyPlan, ScanSummary
+from desk.contracts.enums import RejectReason, Stance
+from desk.plan.models import DailyPlan, PlanTrade, ScanSummary
 from desk.regime.state import RegimeState
 from desk.strategies.catalog import CATALOG
+
+
+#: Rejections that are TRUE TODAY AND MAY NOT BE TOMORROW. A name refused
+#: for one of these is a watchlist entry, not a rejected thesis: the setup
+#: itself was fine and something about today's circumstances stopped it.
+#:
+#: The distinction is the whole reason `watchlist` and `avoid` are separate
+#: fields rather than one list. "Results are due on Thursday" and "the
+#: reward does not justify the risk at these levels" are different
+#: statements, and collapsing them tells the reader to forget a name that
+#: is worth watching.
+_TEMPORARY_REASONS = frozenset({
+    RejectReason.EVENT_IN_WINDOW.value,   # the event passes
+    RejectReason.STALE_DATA.value,        # fresher bars arrive
+    RejectReason.DAILY_LOSS_CAP.value,    # tomorrow is a new day
+    RejectReason.MAX_POSITIONS.value,     # a position closes
+    RejectReason.PORTFOLIO_HEAT_CAP.value,
+    RejectReason.SECTOR_CAP.value,
+    RejectReason.CORRELATED_CAP.value,
+    RejectReason.MARKET_RISK_OFF.value,   # the regime turns
+})
+
+
+def _shortlists(scan: ScanSummary | None) -> tuple[list[PlanTrade],
+                                                   list[PlanTrade]]:
+    """(watchlist, avoid) from what the funnel removed and why.
+
+    Both were declared on DailyPlan and never populated, while Stage 3's
+    vetoes and Stage 4's rejections were computed in full and thrown
+    away. A trader seeing two approved trades out of eight candidates had
+    no way to learn which six were dropped, or whether "dropped" meant
+    "the model disliked it" or "it reports earnings on Thursday".
+
+    WATCHLIST is for names refused by something that expires - an event
+    in the window, a portfolio cap that frees up, a risk-off regime.
+    AVOID is for a thesis that failed on its own merits: the narrative
+    veto, a reward that does not justify the risk, an illiquid name.
+
+    A name appearing in neither is one that was never removed.
+    """
+    if scan is None:
+        return [], []
+
+    watch: list[PlanTrade] = []
+    avoid: list[PlanTrade] = []
+
+    # Stage 4 first: a risk-gate refusal is the more specific fact, and a
+    # name cannot be both vetoed and sized.
+    for symbol, reason in scan.rejected:
+        entry = PlanTrade(
+            symbol=symbol, stance=Stance.REVIEW, confidence=0.0,
+            rationale=f"risk gate refused: {reason}")
+        parts = {r.strip() for r in reason.split(",")}
+        (watch if parts & _TEMPORARY_REASONS else avoid).append(entry)
+
+    # Stage 3's vetoes are judgements about the thesis, so they avoid.
+    for symbol, why in scan.vetoed.items():
+        avoid.append(PlanTrade(
+            symbol=symbol, stance=Stance.REVIEW, confidence=0.0,
+            rationale=f"narrative veto: {why}",
+            dissenting=["scanner-stage3"]))
+
+    return watch, avoid
 
 
 def _regime_note(regime: RegimeState) -> str:
@@ -124,6 +188,7 @@ def build_plan(*, as_of: date, calendar: TradingCalendar | None,
         if scan.coverage_note:
             warnings.append(f"Price history behind this scan: {scan.coverage_note}")
 
+    watchlist, avoid = _shortlists(scan)
     return DailyPlan(
         as_of=as_of,
         universe_scanned=scan.universe_scanned if scan else 0,
@@ -132,6 +197,8 @@ def build_plan(*, as_of: date, calendar: TradingCalendar | None,
         survived_stage2=scan.survived_stage2 if scan else 0,
         analysed=scan.considered if scan else 0,
         trades=trades,
+        watchlist=watchlist,
+        avoid=avoid,
         regime=regime.label,
         regime_note=_regime_note(regime),
         regime_detail=regime.explain(),
