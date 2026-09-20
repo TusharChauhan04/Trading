@@ -56,6 +56,14 @@ from desk.journal.models import ExitReason
 __all__ = ["ExitSimulation", "SimulatedTrade", "simulate_trade"]
 
 
+#: NSE's minimum tick. A stop closer than this to the fill is not a stop -
+#: it is below the granularity at which the exchange quotes prices, so the
+#: "risk" being divided by is a rounding artifact. Same reasoning and same
+#: value as desk.scanner.stage1.MIN_VALID_PRICE, kept local rather than
+#: imported so the backtest does not depend on the scanner.
+MIN_TICK = 0.01
+
+
 @dataclass(frozen=True, slots=True)
 class SimulatedTrade:
     symbol: str
@@ -160,9 +168,28 @@ def simulate_trade(bars: pd.DataFrame, *, symbol: str, decided_on: date,
     # visible: gap-ups through the entry are exactly how a momentum
     # shortlist loses its best-looking names before it can act on them, and
     # booking them at a tidy 0R hides that entirely.
-    if entry_price <= stop:
+    # A tick, not zero. `entry_price <= stop` alone lets a fill land a
+    # FRACTION of a paisa above the stop and calls it a position: the trade
+    # is "taken", risk_per_share is 0.002 on a stock that moves in 0.01
+    # steps, and every R computed from it divides by a number smaller than
+    # the exchange's own price granularity.
+    #
+    # MEASURED, and it is why this guard was tightened. Over the 2023-09-01
+    # to 2026-09-17 replay exactly ONE of 1,251 trades landed there, and its
+    # round-trip cost came to 251.66R. That single trade carried 83% of the
+    # mean cost-per-trade (0.2418R against a median of 0.0349R) and made the
+    # whole cost measurement unreadable. Its gross R looked perfectly normal,
+    # which is what kept it invisible - the distortion only appears once you
+    # divide something by that risk.
+    # The 1e-9 is not slack in the rule, it is float representation:
+    # 180.01 - 180.0 evaluates to 0.009999999999990905, so a bare
+    # `< MIN_TICK` rejects a fill exactly one tick clear of the stop -
+    # a perfectly real trade. Caught by the test below asserting the
+    # guard does not creep past the boundary it is aimed at.
+    if entry_price - stop < MIN_TICK - 1e-9:
         return ExitSimulation(
-            None, "gapped below the stop before entry - setup invalidated")
+            None, "gapped to within a tick of the stop before entry - "
+                  "setup invalidated")
     if target is not None and entry_price >= target:
         return ExitSimulation(
             None, "gapped past the target before entry - setup invalidated")

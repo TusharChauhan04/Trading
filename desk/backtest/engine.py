@@ -152,13 +152,56 @@ class BacktestResult:
 
     @property
     def expectancy_r(self) -> float | None:
-        """Average R per trade. The primary number.
+        """Average R per trade, GROSS OF COSTS.
 
         R rather than rupees because it is the only measure comparable
         across names: 2R on a 40-rupee stock and 2R on a 4,000-rupee one
         are the same result and the rupee figures are not.
+
+        GROSS, and that was not stated here for a long time. Costs never
+        reach `SimulatedTrade.r_multiple` - it is
+        (exit_price - entry_price) / risk_per_share, and simulate.py does
+        not import the cost model at all. Meanwhile `summary()` printed
+        this line directly above "costs Rs ..." and "NET P&L Rs ...", so
+        the reader saw an R figure beside a NET rupee figure and had every
+        reason to read the R as net too. It is not. Use
+        `expectancy_r_net` for the number a trader would actually keep.
         """
         rs = self.r_multiples
+        return (sum(rs) / len(rs)) if rs else None
+
+    def cost_r(self, trade: SimulatedTrade) -> float | None:
+        """One trade's round-trip cost, in units of the risk it took.
+
+        Same denominator as `r_multiple` - the rupees actually at risk on
+        this position - so the two are directly subtractable. Dividing by
+        anything else (capital, notional) would produce a number that
+        LOOKS subtractable and is not.
+        """
+        risk = trade.risk_per_share * trade.qty
+        if risk <= 0:
+            return None
+        return self.costs.round_trip(entry=trade.entry_price,
+                                     exit_=trade.exit_price,
+                                     qty=trade.qty).total / risk
+
+    @property
+    def net_r_multiples(self) -> list[float]:
+        out = []
+        for t in self.trades:
+            g, c = t.r_multiple, self.cost_r(t)
+            if g is not None and c is not None:
+                out.append(g - c)
+        return out
+
+    @property
+    def expectancy_r_net(self) -> float | None:
+        """Average R per trade AFTER costs. The number that decides.
+
+        Every expectancy this project quoted before this existed was the
+        gross one, including the -0.349R of the first backtest and the
+        -0.031R of the random baseline."""
+        rs = self.net_r_multiples
         return (sum(rs) / len(rs)) if rs else None
 
     @property
@@ -203,8 +246,10 @@ class BacktestResult:
         lines += [
             f"  win rate            {self.win_rate:.1f}%  "
             f"({self.wins} of {len(self.r_multiples)})",
-            f"  expectancy          {exp:+.3f}R per trade",
-            f"  total               {self.total_r:+.1f}R",
+            f"  expectancy          {exp:+.3f}R per trade GROSS"
+            + (f",  {self.expectancy_r_net:+.3f}R NET of costs"
+               if self.expectancy_r_net is not None else ""),
+            f"  total               {self.total_r:+.1f}R gross",
             f"  max drawdown        {self.max_drawdown_r:.1f}R",
             f"  gross P&L           Rs {self.gross_pnl:,.0f}",
             f"  costs               Rs {self.total_costs:,.0f}  "

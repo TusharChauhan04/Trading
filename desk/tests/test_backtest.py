@@ -106,7 +106,34 @@ def test_a_gap_below_the_stop_before_entry_is_not_a_trade():
     sim = _run([("2026-09-17", 200, 201, 199, 200),
                 ("2026-09-18", 172, 175, 170, 174)])
     assert sim.trade is None
-    assert "gapped below the stop" in sim.reason_not_taken
+    assert "stop before entry - setup invalidated" in sim.reason_not_taken
+
+
+def test_a_fill_within_one_tick_of_the_stop_is_not_a_trade_either():
+    """The same guard, at the boundary the first version missed.
+
+    `entry_price <= stop` lets a fill land a FRACTION of a paisa above the
+    stop and calls it a position. risk_per_share is then smaller than the
+    0.01 NSE actually quotes in, and every R divided by it is a rounding
+    artifact rather than a measurement.
+
+    MEASURED: exactly one of 1,251 trades in the 2023-09-01 to 2026-09-17
+    replay landed here, and its round-trip cost came to 251.66R - 83% of
+    the mean cost per trade, against a median of 0.0349R. Its GROSS R
+    looked entirely normal, which is what hid it; the distortion only
+    appears once something is divided by that risk. One trade in 1,251 was
+    enough to make the cost of the whole strategy unreadable.
+    """
+    # stop is 180 (see _run); an open at 180.005 is above it but inside a tick
+    sim = _run([("2026-09-17", 200, 201, 199, 200),
+                ("2026-09-18", 180.005, 185, 179, 184)])
+    assert sim.trade is None, "a sub-tick stop distance is not a position"
+    assert "within a tick" in sim.reason_not_taken
+
+    # a full tick clear of the stop IS a trade - the guard must not creep
+    sim = _run([("2026-09-17", 200, 201, 199, 200),
+                ("2026-09-18", 180.01, 185, 179.5, 184)])
+    assert sim.trade is not None, "exactly one tick of risk still counts"
 
 
 def test_a_gap_through_the_stop_AFTER_entry_fills_at_the_open():
