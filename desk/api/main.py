@@ -1147,7 +1147,7 @@ def regime_today(day: date | None = None,
 # --------------------------------------------------------------- journal ---
 
 @app.get("/journal", tags=["journal"])
-def journal_index() -> dict:
+def journal_index(limit: int = Query(default=120, ge=1, le=2000)) -> dict:
     """Every day the desk has recorded a decision for.
 
     `unrecorded` is the journal's own to-do list - days with trades whose
@@ -1156,10 +1156,21 @@ def journal_index() -> dict:
     the flattering reading wins.
     """
     store = JournalStore(CONFIGS / "journal")
-    days = store.days()
+    # ONE directory listing, shared by every lookup below. This handler
+    # used to call days(), then latest() per day, then unrecorded() and
+    # open_positions() - each of which looped over every day AGAIN - so
+    # it read every decision file twice and every outcomes file twice,
+    # with each lookup globbing the whole directory. O(D^2), measured at
+    # 3.4s by 750 recorded days.
+    index = store.index()
+    days = sorted(index)
+    # `limit` bounds the response the way /scanner/stage1, /news and
+    # /fundamentals already do. This was the one list endpoint with no
+    # bound at all, on the one collection that grows every trading day.
+    shown = list(reversed(days))[:limit]
     rows = []
-    for d in reversed(days):
-        dec = store.latest(d)
+    for d in shown:
+        dec = store.latest(d, index)
         if dec is None:
             rows.append({"as_of": d.isoformat(), "unreadable": True})
             continue
@@ -1170,18 +1181,21 @@ def journal_index() -> dict:
             "symbols": list(dec.symbols),
             "no_trade_reason": dec.no_trade_reason,
             "digest": dec.digest(),
-            "versions": len(store.history(d)),
+            "versions": len(index.get(d, ())),
             "capital": dec.capital,
             "outcomes_recorded": len(store.outcomes(d)),
         })
     return {
         "days": rows,
         "total": len(days),
+        "shown": len(rows),
+        "truncated": len(rows) < len(days),
         "no_trade_days": sum(1 for r in rows if not r.get("trades")),
-        "unrecorded_outcomes": [d.isoformat() for d in store.unrecorded()],
+        "unrecorded_outcomes": [d.isoformat()
+                                for d in store.unrecorded(index)],
         "open_positions": [
             {"decision_date": o.decision_date.isoformat(), "symbol": o.symbol}
-            for o in store.open_positions()
+            for o in store.open_positions(index)
         ],
     }
 
@@ -1516,7 +1530,7 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
                             cfg=RiskConfig(capital=capital),
                             portfolio=portfolio, events=events,
                             max_trades=max_trades,
-                            target_r=target_r or Settings.from_env().risk_reward,
+                            target_r=target_r or cfg.risk_reward,
                             stop_atrs=stop_atrs, holding_days=holding_days,
                             today=today or _today_ist())
     except (ValueError, StoreError) as exc:

@@ -156,9 +156,14 @@ class JournalStore:
         return self._write(self._decision_path(decision.as_of, n),
                            amended.to_json())
 
-    def latest(self, day: date) -> Decision | None:
-        """The newest version for a day, amendments included."""
-        versions = self._versions(day)
+    def latest(self, day: date, index: dict | None = None) -> Decision | None:
+        """The newest version for a day, amendments included.
+
+        `index` is the one from `index()`, passed by callers that are
+        already iterating many days so they do not re-list the directory
+        once per day.
+        """
+        versions = self._versions(day, index)
         if not versions:
             return None
         path, _ = max(versions, key=lambda pa: pa[1])
@@ -173,21 +178,41 @@ class JournalStore:
                 out.append(got)
         return out
 
-    def days(self) -> list[date]:
-        """Every day with a decision on file, oldest first."""
+    def index(self) -> dict[date, list[tuple[Path, int]]]:
+        """ONE directory listing, grouped by day.
+
+        `_versions(day)` used to glob the whole directory per day, and
+        callers loop over days - so /journal did roughly 3xD full
+        directory scans for D recorded days, each scan O(D). Measured on
+        a synthetic store at the real cadence (one decision per trading
+        day): 1.36s at 250 days, 3.4s warm / 8.3s cold at 750.
+
+        Invisible today with three decisions on file, and a multi-second
+        endpoint within two years of daily use. A caller doing more than
+        one lookup should take this index and pass it down.
+        """
+        out: dict[date, list[tuple[Path, int]]] = {}
         if not self.decisions_dir.is_dir():
-            return []
-        found = set()
+            return out
         for p in self.decisions_dir.glob("*.json"):
             m = _DAY.match(p.stem)
-            if m:
-                try:
-                    found.add(date.fromisoformat(m.group(1)))
-                except ValueError:
-                    continue
-        return sorted(found)
+            if not m:
+                continue
+            try:
+                day = date.fromisoformat(m.group(1))
+            except ValueError:
+                continue
+            out.setdefault(day, []).append((p, int(m.group(2) or 0)))
+        return out
 
-    def _versions(self, day: date) -> list[tuple[Path, int]]:
+    def days(self) -> list[date]:
+        """Every day with a decision on file, oldest first."""
+        return sorted(self.index())
+
+    def _versions(self, day: date,
+                  index: dict | None = None) -> list[tuple[Path, int]]:
+        if index is not None:
+            return index.get(day, [])
         if not self.decisions_dir.is_dir():
             return []
         out = []
@@ -234,23 +259,25 @@ class JournalStore:
                 continue
         return out
 
-    def open_positions(self) -> list[Outcome]:
+    def open_positions(self, index: dict | None = None) -> list[Outcome]:
         """Everything recorded and not yet closed, oldest first."""
+        idx = self.index() if index is None else index
         out = []
-        for day in self.days():
+        for day in sorted(idx):
             out.extend(o for o in self.outcomes(day) if o.status != "closed")
         return out
 
-    def unrecorded(self) -> list[date]:
+    def unrecorded(self, index: dict | None = None) -> list[date]:
         """Decision days with trades but no outcomes on file.
 
         The journal's own to-do list. Without it, "we have no losing trades"
         and "nobody wrote down how the trades went" look identical, and the
         first reading is the flattering one.
         """
+        idx = self.index() if index is None else index
         out = []
-        for day in self.days():
-            dec = self.latest(day)
+        for day in sorted(idx):
+            dec = self.latest(day, idx)
             if dec is None or dec.is_no_trade:
                 continue
             have = {o.symbol for o in self.outcomes(day)}
