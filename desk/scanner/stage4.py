@@ -86,6 +86,8 @@ class Setup:
     adv_shares: float | None
     score: float
     rationale: str
+    stop_basis: str = "atr"
+    invalidation: str = ""
 
     @property
     def risk_per_share(self) -> float:
@@ -151,6 +153,8 @@ def propose_setup(
     *,
     stop_atrs: float = 2.0,
     target_r: float = DEFAULT_RISK_REWARD,
+    stop_buffer_atrs: float = 0.25,
+    min_stop_atrs: float = 1.0,
 ) -> Setup | None:
     """Turn one Stage 1 feature row into a concrete long setup.
 
@@ -158,6 +162,26 @@ def propose_setup(
     missing. A setup with an invented stop is worse than no setup, because
     the risk engine will happily size it and every number downstream will
     look legitimate.
+
+    THE STOP GOES WHERE THE TRADE IS WRONG. It is placed below the nearest
+    level the setup depends on - the last confirmed swing low, else the
+    20-session low - with a `stop_buffer_atrs` cushion so that a TEST of the
+    level is not a stop-out. `stop_atrs` is now only the fallback for a name
+    with no structure in the loaded history, and `Setup.stop_basis` says
+    which of the two happened on every single trade.
+
+    `min_stop_atrs` is the floor and the one place structure is overruled: a
+    pivot half an ATR below entry is a real level, but a stop there sits
+    inside the range the stock covers on an ordinary day and gets hit by
+    drift. When that happens the stop widens to the floor and the setup says
+    so in `invalidation` rather than reporting a structural stop that is not
+    at the structure.
+
+    NOTHING CAPS THE STOP FROM ABOVE HERE. A structural level 12% away
+    produces a 12% stop, and `size_position` refuses it as STOP_TOO_WIDE.
+    That refusal belongs to the risk engine: pulling the stop in to make a
+    trade fit would put it somewhere the thesis is still intact, which is
+    the exact arbitrary-percentage stop this function exists to replace.
     """
     close = feature_row.get("close")
     atr_pct = feature_row.get("atr_pct")
@@ -168,11 +192,51 @@ def propose_setup(
 
     atr_rupees = float(close) * float(atr_pct) / 100.0
     entry = float(close)
-    stop = entry - stop_atrs * atr_rupees
+
+    level, basis, where = _invalidation_level(feature_row, entry)
+    if level is None:
+        # No structure in the loaded history. The ATR stop is the FALLBACK,
+        # and it is named as one rather than presented as a decision.
+        stop = entry - stop_atrs * atr_rupees
+        invalidation = (
+            f"No confirmed pivot or 20-session low below {entry:.2f} in the "
+            f"loaded history, so there is no structural level to fail. Stop "
+            f"is {stop_atrs}x ATR - a VOLATILITY stop, not an invalidation "
+            f"level: it says how far this stock normally travels, not where "
+            f"the setup would be wrong.")
+    else:
+        # Below the level, not at it. A stop resting exactly on a price the
+        # whole market can see is the one place a wick is most likely to
+        # reach, and being taken out by the test of a level that then holds
+        # is the worst possible outcome - the thesis survives and the
+        # position does not.
+        stop = level - stop_buffer_atrs * atr_rupees
+        invalidation = (
+            f"Below {where}. A close under {level:.2f} breaks the level the "
+            f"setup rests on; the stop sits {stop_buffer_atrs}x ATR beneath "
+            f"it at {stop:.2f} so a test of the level is not a stop-out.")
+
+        floor = entry - min_stop_atrs * atr_rupees
+        if stop > floor:
+            # The level is nearer than this stock's own daily noise. Honouring
+            # it would place the stop inside the range price covers on an
+            # ordinary day, so it would be hit by drift rather than by the
+            # thesis failing. Widening is the honest move and it is DECLARED,
+            # because the stop is no longer where the structure is.
+            invalidation = (
+                f"{where} sits at {level:.2f}, only "
+                f"{(entry - level) / atr_rupees:.2f}x ATR below entry - "
+                f"inside this stock's ordinary daily range, so a stop there "
+                f"would be hit by noise rather than by the setup failing. "
+                f"WIDENED to the {min_stop_atrs}x ATR noise floor at "
+                f"{floor:.2f}, which is further than the structure requires.")
+            stop = floor
+            basis = "noise_floor"
+
     if stop <= 0:
-        # An ATR wide enough to put the stop at or below zero means the
-        # volatility estimate is nonsense for this name, not that the trade
-        # is merely risky.
+        # Either an ATR wide enough to put the stop at or below zero, or a
+        # structural level that is itself non-positive. Both mean the inputs
+        # are nonsense for this name rather than that the trade is risky.
         return None
     target = entry + target_r * (entry - stop)
 
@@ -186,13 +250,69 @@ def propose_setup(
                        ("unusual_move", "unusual move")):
         if bool(feature_row.get(flag, False)):
             bits.append(text)
-    bits.append(f"stop {stop_atrs}x ATR ({atr_pct:.1f}%), target {target_r}R")
+    bits.append(f"stop at {stop:.2f} ({basis}, "
+                f"{(entry - stop) / atr_rupees:.2f}x ATR), target {target_r}R")
 
     return Setup(
         symbol=symbol, stance=Stance.BUY, entry=entry, stop=stop,
         target=target, atr_pct=float(atr_pct), adv_shares=adv, score=score,
-        rationale="; ".join(bits),
+        rationale="; ".join(bits), stop_basis=basis, invalidation=invalidation,
     )
+
+
+def _invalidation_level(feature_row: pd.Series, entry: float
+                        ) -> tuple[float | None, str, str]:
+    """The nearest price level below `entry` that the setup depends on.
+
+    Two candidates: the last confirmed swing low - where the market most
+    recently showed it would defend this name - and the 20-session low, a
+    range floor rather than a pivot anything actually turned at.
+
+    THE NEARER ONE WINS, not the stronger one, because the question is where
+    the setup FAILS FIRST. Price on its way down reaches the nearer level
+    first, and that break is the first evidence available; a stop at the more
+    significant level further below would sit through the whole of that
+    evidence before acting. Ties go to the swing low, which is the better
+    description of the same price.
+
+    MEASURED, because the alternative was the obvious one and I built it
+    first: preferring the swing low unconditionally changed the chosen level
+    for only 14 of 371 names where both exist, but it produced a stop 152x
+    ATR below entry on a name whose last pivot was 111 sessions old and whose
+    ATR is a fraction of a percent. Nearest-first caps that at 18x. Neither
+    rule changes how many names breach the 15% STOP_TOO_WIDE ceiling (42
+    either way), so the pathological tail is the whole of the difference.
+
+    A LEVEL AT OR ABOVE ENTRY IS NOT SUPPORT AND IS SKIPPED. Price below its
+    own last pivot means that pivot is now resistance overhead, and a "stop"
+    above the entry price would be an instant exit at a guaranteed loss. The
+    same guard rejects a zero or negative level from a corrupt bar. That case
+    is not exotic: 611 of 1,508 names on 2026-09-17 sat below their own last
+    pivot.
+
+    Returns (level, basis token, human phrase). The basis token is what the
+    backtest groups by; `None` means no usable structure exists.
+    """
+    def usable(name: str) -> float | None:
+        v = feature_row.get(name)
+        if v is None or pd.isna(v):
+            return None
+        v = float(v)
+        return v if 0 < v < entry else None
+
+    swing, low20 = usable("swing_low"), usable("low_20")
+
+    if swing is not None and (low20 is None or swing >= low20):
+        age = feature_row.get("swing_low_age")
+        when = ("" if age is None or pd.isna(age)
+                else f" set {int(age)} sessions ago")
+        return (swing, "swing_low",
+                f"the last confirmed swing low at {swing:.2f}{when}")
+
+    if low20 is not None:
+        return (low20, "low_20", f"the 20-session low at {low20:.2f}")
+
+    return (None, "atr", "")
 
 
 def run_stage4(
@@ -313,6 +433,13 @@ def run_stage4(
             supporting=["scanner-stage2"],
             dissenting=[],
             rationale=_rationale(setup, sizing),
+            # Carried, not re-derived. `sizing.stop` IS `setup.stop` - the
+            # engine sizes against the stop it was handed and never moves
+            # it - so the basis computed with the level is still true of
+            # the level that was sized. Recomputing it here from prices
+            # alone could not tell a swing low from a 20-session low.
+            stop_basis=setup.stop_basis,
+            invalidation=setup.invalidation,
         ))
         pf = _with_position(pf, symbol, sizing)
 

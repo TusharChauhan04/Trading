@@ -33,6 +33,22 @@ class PlanTrade(BaseModel):
     dissenting: list[str] = Field(default_factory=list)
     rationale: str = ""
 
+    stop_basis: str = ""
+    """WHAT THE STOP IS ANCHORED TO, as one token: "swing_low", "low_20",
+    "noise_floor" or "atr". Machine-readable on purpose - it is the field
+    the backtest groups by to answer whether structural stops actually
+    survive better than volatility ones, which prose cannot be grouped by.
+
+    Empty on a trade recorded before stops had a basis, and on the
+    watchlist/avoid entries, which were never sized."""
+
+    invalidation: str = ""
+    """The same thing in a sentence: the price level that would prove the
+    setup wrong, and why that level. This is the master spec's "Trade
+    Invalidation" line, and the reason the stop is defensible rather than
+    arbitrary - a reader who disagrees with the level can say so, which is
+    not possible with "2 x ATR"."""
+
 
 class ScanSummary(BaseModel):
     """What a funnel run produced, in primitives.

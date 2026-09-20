@@ -348,7 +348,8 @@ def _journal_day(journal, day, summary, regime, capital) -> None:
                     stance=getattr(t.stance, "value", str(t.stance)),
                     entry=t.entry, stop=t.stop, target=t.target, qty=t.qty,
                     capital_at_risk=t.capital_at_risk,
-                    rationale=t.rationale)
+                    rationale=t.rationale, stop_basis=t.stop_basis,
+                    invalidation=t.invalidation)
         for t in summary.trades)
     try:
         journal.record(Decision(

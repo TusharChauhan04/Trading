@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, Fragment } from "react";
 import { api, inr, type DailyPlan } from "../api";
 
 /** Remembered between visits. Nobody wants to retype their capital daily. */
@@ -14,6 +14,16 @@ function storedCapital(): number {
     // Private windows and blocked site data both throw here.
     return DEFAULT_CAPITAL;
   }
+}
+
+/** An ATR stop is not a worse stop, but it is a DIFFERENT claim - "this is
+ *  how far the stock moves" rather than "this is where the setup fails" -
+ *  and the plan should not let the two read alike. `noise_floor` is the
+ *  third case: structure was found and then overruled for being too tight. */
+function stopPill(basis: string): string {
+  if (basis === "swing_low" || basis === "low_20") return "pill ok";
+  if (basis === "noise_floor") return "pill warn";
+  return "pill";
 }
 
 export default function DailyPlanView() {
@@ -154,16 +164,39 @@ export default function DailyPlanView() {
             </thead>
             <tbody>
               {plan.trades.map((t) => (
-                <tr key={t.symbol}>
-                  <td><strong>{t.symbol}</strong></td>
-                  <td><span className="pill ok">{t.stance}</span></td>
-                  <td className="num">{(t.confidence * 100).toFixed(0)}%</td>
-                  <td className="num">{t.entry}</td>
-                  <td className="num">{t.stop}</td>
-                  <td className="num">{t.target}</td>
-                  <td className="num">{t.qty}</td>
-                  <td className="num">{inr(t.capital_at_risk)}</td>
-                </tr>
+                <Fragment key={t.symbol}>
+                  <tr>
+                    <td><strong>{t.symbol}</strong></td>
+                    <td><span className="pill ok">{t.stance}</span></td>
+                    <td className="num">{(t.confidence * 100).toFixed(0)}%</td>
+                    <td className="num">{t.entry}</td>
+                    <td className="num">
+                      {t.stop}
+                      {t.stop_basis && (
+                        <span className={stopPill(t.stop_basis)}
+                              style={{ marginLeft: 6 }}>
+                          {t.stop_basis.replace("_", " ")}
+                        </span>
+                      )}
+                    </td>
+                    <td className="num">{t.target}</td>
+                    <td className="num">{t.qty}</td>
+                    <td className="num">{inr(t.capital_at_risk)}</td>
+                  </tr>
+                  {t.invalidation && (
+                    /* The stop's REASON, not a repeat of its price. A number
+                       on its own cannot be argued with; a named level can be
+                       disagreed with before the order is placed, which is the
+                       whole point of a plan a human executes. */
+                    <tr className="sub">
+                      <td />
+                      <td colSpan={7} className="muted"
+                          style={{ fontSize: 12, paddingTop: 0 }}>
+                        <strong>Invalidation:</strong> {t.invalidation}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>

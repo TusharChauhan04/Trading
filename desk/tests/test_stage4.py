@@ -13,7 +13,8 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from desk.contracts.enums import Regime, Stance
+from desk.contracts.enums import (Regime, RejectReason,
+                                  Stance)
 from desk.risk.engine import Portfolio, Position, RiskConfig
 from desk.scanner.stage1 import FEATURE_COLUMNS, Stage1Result
 from desk.scanner.stage2 import run_stage2
@@ -102,6 +103,133 @@ def test_the_rationale_names_the_flags_that_earned_the_look():
     assert "near 52-week high" in s.rationale
     assert "volatility compressed" not in s.rationale
 
+
+# ===========================================================================
+# the stop goes where the trade is WRONG
+#
+# The master spec asks for a stop "derived from trade invalidation and risk
+# structure - not an arbitrary percentage". A fixed multiple of ATR is an
+# arbitrary percentage wearing a volatility costume: it says how far this
+# stock usually travels, which is a fact about the stock and not about the
+# setup. These tests pin the level to the structure.
+# ===========================================================================
+
+def test_the_stop_sits_below_the_last_swing_low_not_at_a_fixed_atr():
+    """The headline behaviour. ATR sets only the CUSHION under the level."""
+    row = pd.Series({"close": 1000.0, "atr_pct": 2.0, "volume": 1e6,
+                     "swing_low": 940.0, "swing_low_age": 7.0,
+                     "low_20": 900.0})
+    s = propose_setup("AAA.NS", row, score=90.0, stop_atrs=2.0, target_r=2.0,
+                      stop_buffer_atrs=0.25)
+    # 940 - 0.25 x (2% of 1000) = 940 - 5 = 935, NOT the 960 that 2x ATR gives
+    assert s.stop == pytest.approx(935.0)
+    assert s.stop_basis == "swing_low"
+    assert s.target == pytest.approx(1000.0 + 2.0 * 65.0)
+    assert "swing low at 940.00" in s.invalidation
+    assert "7 sessions ago" in s.invalidation
+
+
+def test_the_nearer_level_wins_because_it_is_the_one_that_breaks_first():
+    """Not the more significant level - the first one price reaches. A stop
+    at the lower of the two sits through the whole of the evidence that the
+    setup has failed before acting on any of it."""
+    near_is_low20 = pd.Series({"close": 1000.0, "atr_pct": 2.0,
+                               "swing_low": 800.0, "low_20": 950.0})
+    s = propose_setup("AAA.NS", near_is_low20, score=90.0)
+    assert s.stop_basis == "low_20"
+    assert s.stop == pytest.approx(945.0)          # 950 - 0.25 x 20
+
+    near_is_swing = pd.Series({"close": 1000.0, "atr_pct": 2.0,
+                               "swing_low": 950.0, "low_20": 800.0})
+    assert propose_setup("AAA.NS", near_is_swing, score=90.0).stop_basis \
+        == "swing_low"
+
+
+def test_a_tie_between_the_two_levels_goes_to_the_swing_low():
+    """Same price, better description of it."""
+    row = pd.Series({"close": 1000.0, "atr_pct": 2.0,
+                     "swing_low": 900.0, "low_20": 900.0})
+    assert propose_setup("AAA.NS", row, score=90.0).stop_basis == "swing_low"
+
+
+def test_a_pivot_ABOVE_the_price_is_overhead_resistance_not_a_stop():
+    """611 of 1,508 real names on 2026-09-17 sat below their own last pivot.
+    Using it would put the "stop" above the entry - an instant exit at a
+    guaranteed loss - so it falls through to the level that is actually
+    below."""
+    row = pd.Series({"close": 1000.0, "atr_pct": 2.0,
+                     "swing_low": 1100.0, "low_20": 950.0})
+    s = propose_setup("AAA.NS", row, score=90.0)
+    assert s.stop_basis == "low_20"
+    assert s.stop < s.entry
+
+
+def test_a_level_inside_the_daily_noise_is_widened_and_SAYS_SO():
+    """A pivot 0.3 ATR below entry is a real level, but a stop there is hit
+    by ordinary drift rather than by the thesis failing. Widening is right;
+    widening silently and still calling it a structural stop is not."""
+    row = pd.Series({"close": 1000.0, "atr_pct": 2.0, "swing_low": 994.0})
+    s = propose_setup("AAA.NS", row, score=90.0, min_stop_atrs=1.5)
+    assert s.stop == pytest.approx(970.0)          # 1000 - 1.5 x 20
+    assert s.stop_basis == "noise_floor"
+    assert "WIDENED" in s.invalidation
+    assert "994.00" in s.invalidation, "must still name the level it left"
+
+
+def test_with_no_structure_at_all_the_atr_stop_is_labelled_a_FALLBACK():
+    """The old behaviour survives as the fallback, and the difference between
+    "this is where the setup fails" and "this is how far the stock moves" is
+    stated rather than left for the reader to assume."""
+    row = pd.Series({"close": 1000.0, "atr_pct": 2.0, "volume": 1e6})
+    s = propose_setup("AAA.NS", row, score=90.0, stop_atrs=2.0)
+    assert s.stop == pytest.approx(960.0)
+    assert s.stop_basis == "atr"
+    assert "VOLATILITY stop" in s.invalidation
+    assert "not an invalidation level" in s.invalidation
+
+
+def test_a_corrupt_or_zero_level_is_ignored_rather_than_used():
+    """0 and a negative are not levels, and NaN means the feature could not
+    be computed. None of the three may become a stop."""
+    for bad in (0.0, -5.0, float("nan")):
+        row = pd.Series({"close": 1000.0, "atr_pct": 2.0,
+                         "swing_low": bad, "low_20": bad})
+        s = propose_setup("AAA.NS", row, score=90.0)
+        assert s.stop_basis == "atr", f"{bad} was treated as a level"
+
+
+def test_a_distant_level_is_NOT_pulled_in_here_the_engine_refuses_it():
+    """The one temptation this module must resist. Trimming a 20% structural
+    stop to fit the risk gate would place it somewhere the thesis is still
+    intact, which is exactly the arbitrary stop being replaced. Stage 4
+    proposes it honestly and `size_position` says no."""
+    row = pd.Series({"close": 1000.0, "atr_pct": 2.0,
+                     "swing_low": 800.0, "volume": 1e6})
+    s = propose_setup("AAA.NS", row, score=90.0)
+    assert s.stop == pytest.approx(795.0)
+    assert (s.entry - s.stop) / s.entry > 0.15     # past the 15% ceiling
+
+    from desk.risk.engine import size_position
+    sized = size_position(symbol="AAA.NS", entry=s.entry, stop=s.stop,
+                          target=s.target, cfg=RiskConfig(capital=1_000_000))
+    assert not sized.approved
+    assert RejectReason.STOP_TOO_WIDE in sized.reasons
+
+
+def test_the_basis_and_invalidation_reach_the_approved_trade():
+    """Computed and discarded is the recurring failure in this codebase. The
+    reader of the plan is the one who needs the invalidation level."""
+    rows = {"AAA.NS": _candidate(9, close=1000.0, atr_pct=2.0,
+                                 swing_low=940.0, swing_low_age=5.0,
+                                 low_20=900.0)}
+    s1, s2 = _pipeline(rows)
+    r = run_stage4(s2, s1, cfg=RiskConfig(capital=1_000_000),
+                   portfolio=Portfolio(), today=AS_OF)
+    assert r.approved, r.no_trade_reason()
+    t = r.approved[0]
+    assert t.stop_basis == "swing_low"
+    assert "940.00" in t.invalidation
+    assert t.stop == pytest.approx(935.0), "the sized stop is the proposed one"
 
 # ===========================================================================
 # the risk gate has veto power

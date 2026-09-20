@@ -90,6 +90,19 @@ class TradeRecord:
     supporting: tuple[str, ...] = ()
     dissenting: tuple[str, ...] = ()
 
+    stop_basis: str = ""
+    """What the stop was anchored to: "swing_low", "low_20", "noise_floor"
+    or "atr". Recorded because the levels alone cannot answer the question
+    the journal exists to answer later - not "was the stop hit" but "was
+    the stop in a defensible place". Empty on decisions written before
+    stops had a basis, which is the truth about those records."""
+
+    invalidation: str = ""
+    """The same in a sentence: which price level would prove the setup
+    wrong, and why that one. Frozen with the rest, so a review months later
+    reads the reasoning the desk actually had rather than the reasoning it
+    would have now."""
+
     @property
     def risk_per_share(self) -> float | None:
         if self.entry is None or self.stop is None:
@@ -178,6 +191,12 @@ class Decision:
                 rationale=str(t.get("rationale", "")),
                 supporting=tuple(t.get("supporting", ())),
                 dissenting=tuple(t.get("dissenting", ())),
+                # .get with a default, not [..]: every decision recorded
+                # before these existed must still load, and it must load
+                # as "" - "this record does not say" - rather than as a
+                # guess at what the basis probably was.
+                stop_basis=str(t.get("stop_basis", "")),
+                invalidation=str(t.get("invalidation", "")),
             )
             for t in raw.get("trades", [])
         )

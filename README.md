@@ -201,6 +201,47 @@ Three properties worth not breaking:
 - **The risk engine has veto power.** A 100/100 Stage 2 score buys a name the
   right to be considered and nothing else.
 
+### Where the stop comes from
+
+The stop is placed at the level that would prove the setup **wrong**, not at
+a fixed multiple of anything. Stage 1 finds two levels per symbol and Stage 4
+picks between them:
+
+| Basis | Meaning |
+| --- | --- |
+| `swing_low` | A confirmed fractal pivot - the market turned here. |
+| `low_20` | The 20-session low: a range floor, the weaker second choice. |
+| `noise_floor` | Structure was found and then **overruled** for sitting inside the stock's ordinary daily range. Declared, never silent. |
+| `atr` | No structure in the loaded history. The old volatility stop, as a **labelled fallback**. |
+
+The **nearer** level wins, because the question is where the setup fails
+*first*. The stop then sits `0.25 x ATR` beneath it, so a test of the level
+is not a stop-out. Every trade carries an `invalidation` sentence naming the
+level, in the API, the web plan and the journal - a number alone cannot be
+argued with before the order is placed, and a named level can.
+
+Nothing pulls a distant stop in to make a trade fit. A structural level 20%
+away produces a 20% stop and `size_position` refuses it as `STOP_TOO_WIDE`;
+on 2026-09-17 that refusal removed RIR.NS, whose last pivot was 23.6% below
+the price. Trimming it would have put the stop somewhere the thesis was
+still intact, which is the arbitrary stop this replaces.
+
+**It has not been shown to make money, and that was measured rather than
+assumed.** Replaying 2026-06-01 to 2026-09-17:
+
+| Stop | n | win % | expectancy |
+| --- | --- | --- | --- |
+| ATR 2.0x (the old default) | 170 | 32.9 | -0.248R |
+| ATR 3.5x | 209 | 44.0 | -0.097R |
+| **Structural** (median 3.12x ATR) | 169 | 39.6 | -0.114R |
+
+Structural beats the old 2.0x stop by +0.134R, but at **z = 1.42 that is not
+significant**, and a plain 3.5x ATR stop matches it (z = -0.29). The honest
+reading is that the 2.0x stop was too TIGHT and most of the gain is width,
+not placement. What structural stops definitely buy is explainability; the
+edge is still missing and it is not in the exits - see below.
+
+
 ## Health and staleness
 
 The scanner's entire input depends on someone running the bhavcopy refresh

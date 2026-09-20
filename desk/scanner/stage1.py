@@ -82,6 +82,7 @@ FEATURE_COLUMNS = (
     "atr_pct", "atr_pct_rank",
     "dist_sma20_pct", "dist_sma50_pct", "dist_sma200_pct",
     "pos_52w_pct", "high_52w", "low_52w",
+    "swing_low", "swing_low_age", "low_20",
     "bb_width_pct", "compressed",
     "rs_rank",
     "unusual_volume", "unusual_move", "near_52w_high", "extended",
@@ -141,6 +142,7 @@ def run_stage1(
     unusual_move_atrs: float = 1.5,
     near_high_pct: float = 95.0,
     extended_atrs: float = 4.0,
+    swing_window: int = 3,
 ) -> Stage1Result:
     """Compute Stage 1 features for every symbol in `history`.
 
@@ -153,6 +155,11 @@ def run_stage1(
     RiskConfig: 2x average volume, a move of 1.5 ATR, within 5% of the
     52-week high, and 4 ATR above the 20-DMA are conventional starting
     points, not recommendations.
+
+    `swing_window` (default 3, the common 3-bar fractal) is how many bars
+    either side of a low must be higher for it to count as a pivot. Larger
+    finds fewer and more significant pivots, and costs w more bars of
+    confirmation lag before the newest one can be used.
     """
     if history.frame.empty:
         raise ValueError(
@@ -302,6 +309,22 @@ def run_stage1(
     span = (hi - lo).replace(0, np.nan)
     out["pos_52w_pct"] = _finite((100.0 * (close - lo) / span).iloc[-1])
 
+    # --- structural levels, for the STOP -----------------------------------
+    # Stage 4 places its stop where the trade is WRONG, not at a fixed
+    # multiple of ATR, and "wrong" is a price level: the pivot the market
+    # last defended. These are the levels it needs, computed here because
+    # this is where the history already is - Stage 4 sees one feature row
+    # per symbol and could not find a swing low if it wanted to.
+    if low is not None:
+        swing, age = _swing_low_wide(low, window=swing_window)
+        out["swing_low"] = _finite(swing)
+        out["swing_low_age"] = age
+        out["low_20"] = _finite(low.rolling(20, min_periods=20).min().iloc[-1])
+    else:
+        out["swing_low"] = np.nan
+        out["swing_low_age"] = np.nan
+        out["low_20"] = np.nan
+
     # --- compression -------------------------------------------------------
     mid = sma20
     std = close.rolling(20).std()
@@ -364,6 +387,62 @@ def _slice(matrix: pd.DataFrame | None, columns, as_of: date
         return None
     keep = [c for c in columns if c in matrix.columns]
     return matrix[keep].loc[:as_of].copy()
+
+
+def _swing_low_wide(low: pd.DataFrame, window: int
+                    ) -> tuple[pd.Series, pd.Series]:
+    """Most recent CONFIRMED fractal swing low per symbol, and its age.
+
+    A bar is a swing low when its `low` is the minimum of the `window` bars
+    either side of it. Vectorised across the whole universe with one centred
+    rolling min, because the reference implementation in
+    `desk.indicators.structure.swing_points` is a per-bar Python loop and
+    this runs on ~1,500 names x 120 bars every morning.
+
+    CONFIRMATION IS NOT A SEPARATE CHECK, it falls out of the window. A
+    centred `rolling(2w+1, min_periods=2w+1)` is NaN for the last w bars -
+    they do not yet have w bars after them - so those bars can never compare
+    equal and can never be reported as a swing low. That matters more than it
+    looks: today's low is ALWAYS the lowest low seen so far on the right-hand
+    side, so a version without confirmation would nominate the most recent
+    bar as "the pivot" on any down day and hand Stage 4 a stop a few paise
+    below the current price.
+
+    THE ONE DELIBERATE DEVIATION from the reference: it requires the low to
+    be the STRICT and unique minimum of its window, and this does not. A flat
+    double bottom - two bars at the same low - is disqualified there and
+    accepted here, because the question differs. For labelling market
+    structure a tie is ambiguous; for placing a STOP a level the market
+    tested twice and held is stronger support than a single spike, not
+    weaker. Uniqueness is also the one part that does not vectorise: the
+    count depends on each bar's own window minimum, so it needs the loop.
+
+    Returns (price, age_in_sessions), both NaN where no confirmed swing low
+    exists in the loaded history - never a substitute level wearing this
+    name.
+    """
+    span = 2 * window + 1
+    n = len(low)
+    if n < span:
+        nan = pd.Series(np.nan, index=low.columns)
+        return nan, nan.copy()
+
+    centred_min = low.rolling(span, center=True, min_periods=span).min()
+    is_swing = low.eq(centred_min) & centred_min.notna()
+
+    # Prices at the swing bars, carried forward: the last non-NaN value in
+    # each column IS the most recent swing low.
+    price = low.where(is_swing).ffill().iloc[-1]
+
+    # Same trick on row positions to get the age. Building the position
+    # matrix by broadcast rather than repeat keeps it a view-sized allocation
+    # instead of a second copy of the universe.
+    positions = pd.DataFrame(
+        np.broadcast_to(np.arange(n, dtype="float64")[:, None], low.shape),
+        index=low.index, columns=low.columns)
+    last = positions.where(is_swing).ffill().iloc[-1]
+    age = (n - 1) - last
+    return price, age
 
 
 def _true_range_wide(high: pd.DataFrame, low: pd.DataFrame,

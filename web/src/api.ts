@@ -80,6 +80,11 @@ export interface PlanTrade {
   supporting: string[];
   dissenting: string[];
   rationale: string;
+  /** What the stop is anchored to: swing_low | low_20 | noise_floor | atr.
+   *  Empty on a plan served before stops had a basis. */
+  stop_basis: string;
+  /** The price level that would prove the setup wrong, in a sentence. */
+  invalidation: string;
 }
 
 export interface DailyPlan {

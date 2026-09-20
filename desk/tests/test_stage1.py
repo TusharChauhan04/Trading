@@ -404,3 +404,101 @@ def test_a_zero_factor_action_is_not_waved_through_as_a_dividend(store):
                    actions=[weird], min_bars=10)
     assert r.unadjusted_actions == {"AAA.NS": 1}
     assert "AAA.NS" not in r.features.index
+
+
+# ===========================================================================
+# structural levels - the inputs to a stop that is not an arbitrary percentage
+# ===========================================================================
+
+def test_the_confirmed_swing_low_and_its_age_are_found():
+    """A clean V. The pivot is the bottom, and the age is counted in
+    sessions back from the last bar, not in calendar days."""
+    from desk.scanner.stage1 import _swing_low_wide
+    lows = [10, 9, 8, 7, 6, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+    price, age = _swing_low_wide(pd.DataFrame({"A": lows}), window=3)
+    assert price["A"] == pytest.approx(5.0)
+    assert age["A"] == pytest.approx(9.0)          # index 5 of 15 bars
+
+
+def test_the_most_recent_bars_can_never_be_nominated_as_a_pivot():
+    """THE ONE THAT MATTERS. Today's low is always the lowest low seen so far
+    from the right-hand side, so a swing detector without confirmation
+    nominates the newest bar on any down day and hands Stage 4 a "structural"
+    stop a few paise under the current price. A centred window makes the last
+    `window` bars NaN, so the check is structural rather than a guard someone
+    can forget."""
+    from desk.scanner.stage1 import _swing_low_wide
+    falling = [20, 20, 20, 20, 20, 20, 20, 19, 18, 17]   # last 3 are new lows
+    price, age = _swing_low_wide(pd.DataFrame({"A": falling}), window=3)
+    assert age["A"] >= 3, "a bar inside the confirmation lag was used"
+    assert price["A"] != 17
+
+
+def test_no_pivot_in_the_window_is_NaN_not_a_substitute_level():
+    """A monotonic series has no interior minimum. Reporting the lowest bar
+    anyway would be a different measure wearing this one's name."""
+    from desk.scanner.stage1 import _swing_low_wide
+    price, age = _swing_low_wide(
+        pd.DataFrame({"A": list(range(20, 5, -1))}), window=3)
+    assert pd.isna(price["A"]) and pd.isna(age["A"])
+
+    # and too short to hold one full window at all
+    price, age = _swing_low_wide(pd.DataFrame({"A": [5.0, 4.0, 6.0]}), window=3)
+    assert pd.isna(price["A"])
+
+
+def test_a_flat_double_bottom_counts_here_though_not_in_the_reference():
+    """A deliberate divergence from desk.indicators.structure.swing_points,
+    which requires the strict unique minimum. Two bars at the same low is an
+    ambiguous label and a STRONGER support - the level was tested twice and
+    held - and this function exists to place stops, not to label structure."""
+    from desk.scanner.stage1 import _swing_low_wide
+    price, _ = _swing_low_wide(
+        pd.DataFrame({"A": [9, 8, 7, 5, 5, 7, 8, 9, 10, 11]}), window=2)
+    assert price["A"] == pytest.approx(5.0)
+
+
+def test_structural_levels_appear_on_the_feature_table(store):
+    """Wired, not merely implemented - Stage 4 reads these three by name."""
+    days = _sessions(60)
+    px = ([100.0] * 20 + [100 - i for i in range(10)]      # down to 91
+          + [91 + i for i in range(20)]                    # back up to 110
+          + [110 + i for i in range(10)])                  # on to 119
+    _build(store, days, {"AAA": px})
+    r = run_stage1(store.history(as_of=days[-1], lookback=60), as_of=days[-1],
+                   min_bars=30)
+    row = r.features.loc["AAA"]
+    for col in ("swing_low", "swing_low_age", "low_20"):
+        assert col in r.features.columns
+    # `_build` puts lows at 0.99 x close, so the V bottom is 91 x 0.99. Bars
+    # 29 AND 30 are both 91 - the descent ends at 91 and the ascent starts
+    # there - and the LATER of two tied pivots is the most recent one, so
+    # the age is 59 - 30 rather than 59 - 29.
+    assert row["swing_low"] == pytest.approx(91 * 0.99, rel=1e-9)
+    assert row["swing_low_age"] == pytest.approx(29.0)
+    assert row["low_20"] == pytest.approx(min(px[-20:]) * 0.99, rel=1e-9)
+    assert row["swing_low"] < row["close"]
+
+
+def test_a_flat_shelf_is_reported_as_the_pivot_and_that_is_correct(store):
+    """CAUGHT BY A TEST I WROTE WRONG, and kept because the behaviour is
+    surprising enough to pin down. With the series above ending in a flat
+    run at 110 instead of rising, the pivot is not the V bottom at 91 - it
+    is the shelf at 110, because every bar inside a flat run is the minimum
+    of its own window once ties are allowed.
+
+    That is the right answer rather than a bug: the floor of the
+    consolidation price is currently sitting in IS the nearest level it
+    would break, and it is a good deal more relevant to today's stop than a
+    V bottom 30 sessions back. It only looks wrong if you expect "swing low"
+    to mean "lowest low".
+    """
+    days = _sessions(60)
+    px = ([100.0] * 20 + [100 - i for i in range(10)]
+          + [91 + i for i in range(20)] + [110.0] * 10)
+    _build(store, days, {"AAA": px})
+    r = run_stage1(store.history(as_of=days[-1], lookback=60), as_of=days[-1],
+                   min_bars=30)
+    row = r.features.loc["AAA"]
+    assert row["swing_low"] == pytest.approx(110 * 0.99, rel=1e-9)
+    assert row["swing_low"] < row["close"], "still a usable stop level"

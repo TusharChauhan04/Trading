@@ -321,6 +321,7 @@ def decision_from_plan(plan, *, summary=None, capital: float = 0.0,
             entry=t.entry, stop=t.stop, target=t.target, qty=t.qty,
             capital_at_risk=t.capital_at_risk, rationale=t.rationale,
             supporting=tuple(t.supporting), dissenting=tuple(t.dissenting),
+            stop_basis=t.stop_basis, invalidation=t.invalidation,
         )
         for t in plan.trades
     )
