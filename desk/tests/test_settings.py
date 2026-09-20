@@ -216,11 +216,23 @@ def test_dotenv_is_gitignored():
 
 # --- the fundamental filters, which are policy not defaults --------------
 
-def test_the_filters_are_off_unless_set():
+def test_the_filters_are_off_unless_set(monkeypatch):
     """Measured reason, not caution: every filing on disk is 555-616 days
     old because NSE's results endpoint stops at Jan 2025, so a
     plausible-looking 200-day threshold would exclude the ENTIRE universe
-    and return NO TRADE every day while appearing to work."""
+    and return NO TRADE every day while appearing to work.
+
+    THE DELENV CALLS ARE THE TEST, not setup noise. `env_file=None` does
+    NOT isolate this: `load_dotenv` writes into `os.environ`, and that
+    mutation outlives the call, so any earlier test in the same process
+    that loaded the real .env leaves its values visible here. While .env
+    shipped both keys blank the difference was invisible and this read
+    like an assertion about the code default when it was really an
+    assertion about the developer's machine. Setting a real floor in .env
+    is what made it fail.
+    """
+    monkeypatch.delenv("DESK_MAX_FILING_AGE_DAYS", raising=False)
+    monkeypatch.delenv("DESK_MIN_NET_MARGIN_PCT", raising=False)
     s = Settings.from_env(env_file=None)
     assert s.max_filing_age_days is None
     assert s.min_net_margin_pct is None
@@ -263,8 +275,13 @@ def test_a_nonsense_margin_raises(monkeypatch):
 
 
 def test_describe_shows_whether_each_filter_is_on(monkeypatch):
+    # Same reason as test_the_filters_are_off_unless_set: a loaded
+    # .env lives on in os.environ, so the OFF half must clear them.
+    monkeypatch.delenv("DESK_MAX_FILING_AGE_DAYS", raising=False)
+    monkeypatch.delenv("DESK_MIN_NET_MARGIN_PCT", raising=False)
     off = "\n".join(Settings.from_env(env_file=None).describe())
     assert "DESK_MAX_FILING_AGE_DAYS  OFF" in off
+    assert "DESK_MIN_NET_MARGIN_PCT   OFF" in off
     monkeypatch.setenv("DESK_MAX_FILING_AGE_DAYS", "400")
     monkeypatch.setenv("DESK_MIN_NET_MARGIN_PCT", "0")
     on = "\n".join(Settings.from_env(env_file=None).describe())
