@@ -48,7 +48,8 @@ import pandas as pd
 from desk.contracts.enums import Regime
 from desk.scanner.stage1 import Stage1Result
 
-__all__ = ["FactorSpec", "DEFAULT_FACTORS", "Stage2Result", "run_stage2"]
+__all__ = ["FactorSpec", "DEFAULT_FACTORS", "REVERSAL_FACTORS",
+           "Stage2Result", "run_stage2"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -463,6 +464,72 @@ def _apply_fundamentals(src, fundamentals, excluded, *,
             joined = joined[~thin.fillna(False)]
 
     return joined, excluded, notes
+
+
+#: THE MEASURED ALTERNATIVE. Not adopted - `DEFAULT_FACTORS` is still what
+#: production ranks on - and it stays that way until the backtest says this
+#: is better NET OF COSTS. It exists because the information coefficients
+#: below are the first direct evidence this project has about whether any
+#: of its factors predict anything, and they say four of the five default
+#: factors are pointed the wrong way.
+#:
+#: Measured 2026-09-20 over 2023-09-01 to 2026-09-17: 120 cross-sections
+#: sampled every 5th session, ~1,500 names each, Spearman rank correlation
+#: against the forward 5-session return, averaged across sessions. The
+#: figures quoted are from the 500 most-traded names per session, because a
+#: reversal effect that only exists in microcaps is not tradeable:
+#:
+#:     column            IC       t     DEFAULT_FACTORS says   verdict
+#:     rel_volume      -0.0280   -4.30  +1 (participation)     BACKWARDS
+#:     ret_1d_pct      -0.0360   -3.75  not used
+#:     ret_5d_pct      -0.0307   -3.11  not used
+#:     atr_pct_rank    -0.0203   -2.74  -1 (calmness)          correct
+#:     dist_sma20_pct  -0.0246   -2.42  not used
+#:     dist_sma50_pct  -0.0149   -1.27  +1 (trend)             wrong, weak
+#:     ret_20d_pct     -0.0137   -1.30  +1 (momentum)          wrong, weak
+#:     pos_52w_pct     +0.0073   +0.66  +1 (range_position)    NO SIGNAL
+#:
+#: Robustness: the ICs are unchanged when every forward window containing a
+#: single-session move beyond +/-20% is dropped (desk.marketdata.quality's
+#: circuit-band threshold), so unadjusted splits - which would bias exactly
+#: this way, since companies that split are companies whose price rose - are
+#: not producing them.
+#:
+#: WHY ONLY THREE FACTORS. ret_1d_pct is the strongest single number here
+#: and it is deliberately NOT used: one-day reversal is the classic
+#: bid-ask-bounce artifact, and at a 0.42% round trip it is precisely the
+#: signal costs eat first. ret_5d_pct carries the same effect on a horizon
+#: the desk can actually hold. dist_sma20_pct is left out for the reason
+#: the default set already gives for excluding it - it is a near-duplicate
+#: of the other price-move factors on daily bars, and three correlated
+#: measures of "this went up recently" is one voice counted three times.
+#: rel_volume is kept because volume is not price and carries its own
+#: information; atr_pct_rank because it was already right.
+REVERSAL_FACTORS: tuple[FactorSpec, ...] = (
+    FactorSpec(
+        "reversal", "ret_5d_pct", -1, 1.0,
+        hostile_regimes=(Regime.CRISIS,),
+        rationale="5-session return, INVERTED: recent losers outperform on "
+                  "this horizon (IC -0.031, t -3.11). Silenced in a crisis "
+                  "for the same reason momentum is - buying the worst "
+                  "performers in a falling market is catching knives, and "
+                  "the effect measured here was not measured in one.",
+    ),
+    FactorSpec(
+        "quiet_participation", "rel_volume", -1, 1.0,
+        rationale="Volume against the name's own 20-day baseline, INVERTED. "
+                  "The single most reliable factor measured (t -4.30) and "
+                  "the one the default set had exactly backwards: unusual "
+                  "volume marks a move that has already happened, not one "
+                  "about to.",
+    ),
+    FactorSpec(
+        "calmness", "atr_pct_rank", -1, 0.75,
+        rationale="Prefer the quieter name. Carried over unchanged from "
+                  "DEFAULT_FACTORS - it is the one factor the measurement "
+                  "confirmed rather than contradicted (IC -0.020, t -2.74).",
+    ),
+)
 
 
 def _empty_ranked(factors) -> pd.DataFrame:

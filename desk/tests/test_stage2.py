@@ -366,3 +366,73 @@ def test_a_factor_naming_a_column_stage1_does_not_produce_is_silenced(_=None):
     r = run_stage2(_basic(), regime=Regime.TRENDING_UP, factors=custom)
     assert "imaginary" in r.silenced
     assert "not in the Stage 1 table" in r.silenced["imaginary"]
+
+
+# ===========================================================================
+# REVERSAL_FACTORS - the measured alternative, not yet adopted
+# ===========================================================================
+
+def test_the_default_factor_set_is_still_what_production_ranks_on():
+    """REVERSAL_FACTORS exists to be MEASURED against the default, not to
+    replace it quietly. Adopting a factor set because its information
+    coefficients look good, without a net-of-costs backtest saying it earns
+    more, is how a measurement becomes a belief."""
+    from desk.scanner.stage2 import DEFAULT_FACTORS, run_stage2
+    import inspect
+    assert inspect.signature(run_stage2).parameters["factors"].default \
+        is DEFAULT_FACTORS
+    assert [f.name for f in DEFAULT_FACTORS] == [
+        "momentum", "trend", "range_position", "participation", "calmness"]
+
+
+def test_every_reversal_factor_points_the_way_the_measurement_said():
+    """The whole content of this factor set is its SIGNS. Every measured
+    information coefficient was negative, so every direction here is -1;
+    a +1 appearing in this tuple would mean someone reverted a sign
+    without redoing the study."""
+    from desk.scanner.stage2 import REVERSAL_FACTORS
+    assert REVERSAL_FACTORS, "the set must not be empty"
+    for f in REVERSAL_FACTORS:
+        assert f.direction == -1, (
+            f"{f.name} is +1, but every IC measured for these columns was "
+            f"negative - see the table above REVERSAL_FACTORS")
+
+
+def test_the_reversal_set_avoids_stacking_correlated_price_moves():
+    """The failure the default set's own docstring warns about: several
+    measures of "this went up recently" is one voice counted many times.
+    ret_1d_pct is the strongest single column measured and is deliberately
+    absent - one-day reversal is the bid-ask-bounce artifact, and at a
+    0.42% round trip it is the first thing costs eat."""
+    from desk.scanner.stage2 import REVERSAL_FACTORS
+    cols = {f.column for f in REVERSAL_FACTORS}
+    price_move = cols & {"ret_1d_pct", "ret_5d_pct", "ret_20d_pct",
+                         "dist_sma20_pct", "dist_sma50_pct"}
+    assert len(price_move) == 1, (
+        f"{len(price_move)} correlated price-move factors: {price_move}")
+    assert "ret_1d_pct" not in cols
+    assert "pos_52w_pct" not in cols, "measured IC +0.007, t 0.66 - no signal"
+
+
+def test_the_reversal_set_actually_ranks_and_inverts_the_default_order():
+    """Wired enough to run: it must produce a real ranking through the same
+    run_stage2, and it must disagree with the default - a corrected sign
+    that changes nothing would mean the signs are not reaching the score."""
+    from desk.scanner.stage2 import DEFAULT_FACTORS, REVERSAL_FACTORS
+    rows = {
+        # WINNER on the default set: big 5d gain, heavy volume, calm.
+        "MOMO.NS": {"ret_5d_pct": 12.0, "rel_volume": 3.0,
+                    "atr_pct_rank": 20.0, "ret_20d_pct": 30.0,
+                    "dist_sma50_pct": 15.0, "pos_52w_pct": 95.0},
+        # LOSER on the default set: fell, quiet, calm.
+        "QUIET.NS": {"ret_5d_pct": -8.0, "rel_volume": 0.4,
+                     "atr_pct_rank": 20.0, "ret_20d_pct": -12.0,
+                     "dist_sma50_pct": -9.0, "pos_52w_pct": 20.0},
+    }
+    s1 = _stage1(rows)
+    d = run_stage2(s1, factors=DEFAULT_FACTORS, flagged_only=False,
+                   min_factors=1)
+    r = run_stage2(s1, factors=REVERSAL_FACTORS, flagged_only=False,
+                   min_factors=1)
+    assert d.ranked.index[0] == "MOMO.NS", "default should favour the mover"
+    assert r.ranked.index[0] == "QUIET.NS", "reversal should favour the loser"
