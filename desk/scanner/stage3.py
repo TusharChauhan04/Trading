@@ -67,8 +67,8 @@ from desk.llm.client import MeteredClient
 from desk.scanner.stage2 import Stage2Result
 
 __all__ = [
-    "KEEP_STANCES", "Stage3Result", "Verdict", "build_prompt", "parse_verdicts",
-    "run_stage3",
+    "KEEP_STANCES", "Stage3Result", "Verdict", "VerdictCache", "build_prompt",
+    "parse_verdicts", "run_stage3", "shortlist_digest",
 ]
 
 #: Stage 2 ranks for LONG setups - momentum, trend, range position. A model
@@ -198,6 +198,7 @@ def run_stage3(
     news=None,
     holding_days: int = 5,
     keep_stances: tuple[Stance, ...] = KEEP_STANCES,
+    cache: "VerdictCache | None" = None,
 ) -> Stage3Result:
     """Narrow the Stage 2 shortlist with one narrative pass.
 
@@ -214,6 +215,19 @@ def run_stage3(
         return result
     if not shortlist:
         result.ran = True
+        return result
+
+    # A CACHE HIT SPENDS NOTHING. Keyed on the exact shortlist, so a
+    # changed set of names still re-asks - see VerdictCache below.
+    digest = shortlist_digest(shortlist)
+    cached = cache.get(stage2.as_of, digest) if cache is not None else None
+    if cached is not None:
+        result.ran = True
+        result.verdicts = cached
+        result.unavailable = [
+            "Stage 3 reused the verdict already bought for this exact "
+            "shortlist today - no second charge."]
+        _apply_verdicts(result, shortlist, keep_stances)
         return result
 
     messages = [Message("system", _SYSTEM),
@@ -251,7 +265,22 @@ def run_stage3(
     result.ran = True
     result.cost_inr = answer.cost_inr
     result.verdicts = parse_verdicts(answer.text, shortlist)
+    if cache is not None:
+        cache.put(stage2.as_of, digest, result.verdicts,
+                  cost_inr=answer.cost_inr)
+    _apply_verdicts(result, shortlist, keep_stances)
+    return result
 
+
+def _apply_verdicts(result: Stage3Result, shortlist: list[str],
+                    keep_stances: tuple[Stance, ...]) -> None:
+    """Turn verdicts into kept/vetoed. Shared by the live and cached paths.
+
+    Extracted so a cache hit goes through IDENTICAL logic to a fresh call.
+    Two copies of "which stance keeps a name" is exactly the kind of
+    duplication that drifts, and the drift would be invisible - a cached
+    day quietly applying different rules from a fresh one.
+    """
     for sym in shortlist:
         v = result.verdicts[sym]
         if not v.parsed:
@@ -271,7 +300,6 @@ def run_stage3(
         raise AssertionError(
             f"Stage 3 produced names that were not in its shortlist: "
             f"{sorted(extra)}. Stage 3 may only REMOVE candidates.")
-    return result
 
 
 def build_prompt(stage2: Stage2Result, shortlist: list[str], *,
@@ -363,6 +391,124 @@ def parse_verdicts(text: str, shortlist: list[str]) -> dict[str, Verdict]:
                            if isinstance(c, (str, int, float)))[:6],
             parsed=True)
     return by_symbol
+
+
+
+# ===========================================================================
+# The verdict cache
+# ===========================================================================
+#
+# WITHOUT THIS, EVERY /plan/today IS A FRESH BILLED CALL. Nothing else in
+# the request path costs money, so nothing else needed a throttle - but a
+# browser tab set to auto-refresh, or someone dragging the capital box,
+# would issue one real OpenAI request per reload. The monthly ceiling in
+# desk/llm/budget.py cannot be RACED past (it re-reads the ledger every
+# time), but it can be consumed: Rs 500 at Rs 0.05 a call is ~10,000
+# reloads, and a tight loop reaches that in minutes. Stage 3 would then go
+# quiet for the rest of the month and say so only in a caveat.
+#
+# KEYED ON THE SHORTLIST, NOT ON THE DATE. The date alone would be wrong:
+# the shortlist genuinely changes when new bars land or a filter is
+# altered, and reusing yesterday morning's verdict for a different set of
+# names would be answering a question nobody asked. The digest is over the
+# exact symbols sent, in order, so a changed shortlist re-asks and an
+# identical one does not.
+#
+# This is sound precisely BECAUSE temperature is 0.0: the same prompt
+# returns the same verdict, so a cache hit is not an approximation of what
+# the model would have said - it is what the model did say. At any other
+# temperature this would be quietly averaging over answers.
+
+import hashlib as _hashlib
+
+#: Where the verdicts live. Alongside the spend ledger, because both are
+#: records of money: one of what was spent, one of what it bought.
+VERDICT_CACHE_DIRNAME = "verdicts"
+
+
+def shortlist_digest(symbols) -> str:
+    """A stable id for exactly this question.
+
+    Order matters and is preserved - the prompt asks the model to answer
+    in the order given, so a reordered shortlist is a different prompt.
+    """
+    joined = "|".join(str(s) for s in symbols)
+    return _hashlib.sha256(joined.encode()).hexdigest()[:16]
+
+
+class VerdictCache:
+    """Stage 3 answers on disk, so a reload does not re-buy one.
+
+    On disk rather than in memory, for the same reason every other cache
+    here is: it must survive a server restart and be shared by however
+    many workers are running. An in-process dict would let two uvicorn
+    workers each pay for the same verdict.
+    """
+
+    def __init__(self, root) -> None:
+        from pathlib import Path
+        self.root = Path(root) / VERDICT_CACHE_DIRNAME
+
+    def _path(self, as_of: date, digest: str):
+        return self.root / f"{as_of.isoformat()}_{digest}.json"
+
+    def get(self, as_of: date, digest: str) -> dict | None:
+        """The stored verdicts, or None. A corrupt entry is a MISS.
+
+        Never a partial read: half a verdict set would silently veto the
+        names it failed to parse, which is the worst possible way to save
+        five paise.
+        """
+        path = self._path(as_of, digest)
+        if not path.is_file():
+            return None
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            rows = raw["verdicts"]
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+        out: dict[str, Verdict] = {}
+        for sym, row in rows.items():
+            stance = _stance(row.get("stance"))
+            if stance is None:
+                return None          # unreadable -> miss, not a partial set
+            out[str(sym)] = Verdict(
+                symbol=str(sym), stance=stance,
+                confidence=_confidence(row.get("confidence")),
+                rationale=str(row.get("rationale", "")),
+                concerns=tuple(row.get("concerns", ())),
+                parsed=bool(row.get("parsed", True)))
+        return out or None
+
+    def put(self, as_of: date, digest: str, verdicts: dict,
+            *, cost_inr=None) -> None:
+        """Store what was just paid for. Never fatal.
+
+        A cache write failing must not take down a plan that has already
+        been produced and already been paid for.
+        """
+        try:
+            self.root.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "as_of": as_of.isoformat(),
+                "shortlist_digest": digest,
+                "cost_inr": str(cost_inr) if cost_inr is not None else None,
+                "verdicts": {
+                    sym: {"stance": v.stance.value,
+                          "confidence": v.confidence,
+                          "rationale": v.rationale,
+                          "concerns": list(v.concerns),
+                          "parsed": v.parsed}
+                    for sym, v in verdicts.items()
+                },
+            }
+            path = self._path(as_of, digest)
+            tmp = path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(payload, indent=1), encoding="utf-8")
+            tmp.replace(path)
+        except OSError:
+            pass
 
 
 # --------------------------------------------------------------------------

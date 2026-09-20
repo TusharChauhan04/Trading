@@ -77,16 +77,57 @@ class JournalStore:
     # -- decisions ---------------------------------------------------------
 
     def record(self, decision: Decision) -> Path:
-        """Write one day's decision. REFUSES if that day already has one."""
+        """Write one day's decision. REFUSES if that day already has one.
+
+        THE REFUSAL IS ATOMIC, and it has to be. This was `if path.exists()`
+        followed by a write, which is a check and an action with a gap
+        between them. FastAPI runs sync handlers in a thread pool, so two
+        concurrent /plan/today requests for the same morning - two browser
+        tabs, or a page auto-refreshing while the first load is still
+        running - could BOTH pass the check, and the second write would
+        silently replace the first. No error, no trace. That is precisely
+        the overwrite this whole module exists to make impossible, and it
+        needed no malice at all to happen.
+
+        O_CREAT|O_EXCL is the fix: the operating system either creates the
+        file or raises, and only one caller can win. The decision is then
+        written into that same claimed descriptor rather than through a
+        temp file, because `replace()` overwrites by definition and would
+        hand the race straight back.
+
+        A crash mid-write leaves a truncated file. That is the one case
+        this trades for atomicity, and it is the better end of the trade:
+        `_read_decision` already reports an unparseable record as ABSENT
+        rather than guessing, and the error below distinguishes it.
+        """
         path = self._decision_path(decision.as_of)
-        if path.exists():
+        # os.open will not create intermediate directories the way the
+        # temp-file path used to.
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
             existing = self.latest(decision.as_of)
+            which = (existing.digest() if existing
+                     else "UNREADABLE - the file is present but corrupt")
             raise JournalError(
                 f"a decision for {decision.as_of} is already recorded "
-                f"(digest {existing.digest() if existing else 'unreadable'}). "
-                f"A journal that can be overwritten is not evidence. Use "
-                f"amend() to record a correction alongside it.")
-        return self._write(path, decision.to_json())
+                f"(digest {which}). A journal that can be overwritten is "
+                f"not evidence. Use amend() to record a correction "
+                f"alongside it.") from None
+
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(decision.to_json(), fh, indent=1, default=str)
+                fh.flush()
+                os.fsync(fh.fileno())
+        except BaseException:
+            # Never leave an empty claim behind. A zero-byte file would
+            # block the day forever: record() would refuse it as already
+            # present and latest() would report it as absent.
+            path.unlink(missing_ok=True)
+            raise
+        return path
 
     def amend(self, decision: Decision, *, reason: str) -> Path:
         """Record a correction WITHOUT destroying what it corrects.

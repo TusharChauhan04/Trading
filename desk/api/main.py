@@ -47,7 +47,7 @@ from desk.research.events import load_calendar
 from desk.research.fundamentals import FundamentalsCache
 from desk.research.news import load_news
 from desk.scanner.stage2 import run_stage2
-from desk.scanner.stage3 import run_stage3
+from desk.scanner.stage3 import VerdictCache, run_stage3
 from desk.scanner.stage4 import run_stage4
 from desk.store import BarStore, StoreError
 from desk.strategies.catalog import catalog_status, eligible
@@ -1471,7 +1471,11 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
         stage3 = run_stage3(stage2,
                             client=_llm_client() if use_llm else None,
                             events=events, fundamentals=fundamentals,
-                            news=news)
+                            news=news,
+                            # Without this every page reload is a fresh
+                            # billed call. Keyed on the shortlist, so a
+                            # changed set of names still re-asks.
+                            cache=VerdictCache(CONFIGS / "llm"))
         # R6's data-quality gate, on the SHORTLIST rather than the
         # universe. check_panel over all 1,548 survivors measured 3.59s -
         # too slow for a request that already takes ten - and it is the

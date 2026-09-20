@@ -672,3 +672,134 @@ def test_no_provider_error_can_fail_the_day(tmp_path):
     out = run_stage3(_stage2(), client=client)
     assert out.ran is False
     assert out.kept == ["AAA.NS", "BBB.NS", "CCC.NS"]
+
+
+# =========================================================================
+# The verdict cache - the only thing standing between a refresh loop and
+# the monthly ceiling
+# =========================================================================
+
+def _cached_client(tmp_path, replies):
+    from desk.scanner.stage3 import VerdictCache
+    return (_client(tmp_path, replies), VerdictCache(tmp_path))
+
+
+def test_a_repeat_request_for_the_same_shortlist_spends_nothing(tmp_path):
+    """SECURITY/COST. Nothing else in the request path costs money, so
+    nothing else needed a throttle - but /plan/today had none, and a
+    browser tab set to auto-refresh would buy one real completion per
+    reload. Rs 500 at Rs 0.05 a call is ~10,000 reloads; a loop reaches
+    that in minutes, after which Stage 3 goes quiet for the month."""
+    from desk.scanner.stage3 import VerdictCache
+
+    s2 = _stage2()
+    provider = ScriptedProvider(replies=[_reply(
+        ("AAA.NS", "Buy"), ("BBB.NS", "Sell"), ("CCC.NS", "Buy"))])
+    client = MeteredClient(provider=provider, meter=_meter(tmp_path))
+    cache = VerdictCache(tmp_path)
+
+    first = run_stage3(s2, client=client, cache=cache)
+    second = run_stage3(s2, client=client, cache=cache)
+
+    assert len(provider.calls) == 1, "the second request bought a verdict again"
+    assert first.kept == second.kept == ["AAA.NS", "CCC.NS"]
+    assert second.ran is True
+    assert second.cost_inr == 0
+    assert any("no second charge" in u for u in second.unavailable)
+
+
+def test_a_changed_shortlist_re_asks(tmp_path):
+    """Keying on the DATE alone would be wrong - the shortlist genuinely
+    changes when new bars land, and reusing a verdict for a different set
+    of names answers a question nobody asked."""
+    from desk.scanner.stage3 import VerdictCache
+
+    provider = ScriptedProvider(replies=[
+        _reply(("AAA.NS", "Buy")),
+        _reply(("ZZZ.NS", "Buy")),
+    ])
+    client = MeteredClient(provider=provider, meter=_meter(tmp_path))
+    cache = VerdictCache(tmp_path)
+
+    run_stage3(_stage2(("AAA.NS",)), client=client, cache=cache)
+    run_stage3(_stage2(("ZZZ.NS",)), client=client, cache=cache)
+    assert len(provider.calls) == 2
+
+
+def test_reordering_the_shortlist_re_asks(tmp_path):
+    """The prompt asks for answers in the order given, so a different
+    order is a different prompt."""
+    from desk.scanner.stage3 import shortlist_digest
+    assert shortlist_digest(["A", "B"]) != shortlist_digest(["B", "A"])
+
+
+def test_a_cache_hit_goes_through_identical_keep_veto_logic(tmp_path):
+    """Two copies of 'which stance keeps a name' would drift invisibly -
+    a cached day quietly applying different rules from a fresh one."""
+    from desk.scanner.stage3 import VerdictCache
+
+    s2 = _stage2(("A.NS", "B.NS", "C.NS"))
+    provider = ScriptedProvider(replies=[_reply(
+        ("A.NS", "Buy"), ("B.NS", "Hold"), ("C.NS", "Overweight"))])
+    client = MeteredClient(provider=provider, meter=_meter(tmp_path))
+    cache = VerdictCache(tmp_path)
+
+    fresh = run_stage3(s2, client=client, cache=cache)
+    hit = run_stage3(s2, client=client, cache=cache)
+
+    assert fresh.kept == hit.kept
+    assert set(fresh.vetoed) == set(hit.vetoed)
+    assert {k: v.stance for k, v in fresh.verdicts.items()} == \
+           {k: v.stance for k, v in hit.verdicts.items()}
+
+
+def test_a_corrupt_cache_entry_is_a_miss_not_a_partial_verdict(tmp_path):
+    """Half a verdict set would silently veto the names it failed to
+    parse - the worst possible way to save five paise."""
+    from desk.scanner.stage3 import VerdictCache, shortlist_digest
+
+    cache = VerdictCache(tmp_path)
+    cache.root.mkdir(parents=True, exist_ok=True)
+    digest = shortlist_digest(["AAA.NS", "BBB.NS", "CCC.NS"])
+    (cache.root / f"{DAY.isoformat()}_{digest}.json").write_text(
+        '{"verdicts": {"AAA.NS": {"stance": "Buy"}, "BBB.NS": {"stance":',
+        encoding="utf-8")
+
+    provider = ScriptedProvider(replies=[_reply(
+        ("AAA.NS", "Buy"), ("BBB.NS", "Buy"), ("CCC.NS", "Buy"))])
+    client = MeteredClient(provider=provider, meter=_meter(tmp_path))
+    out = run_stage3(_stage2(), client=client, cache=cache)
+
+    assert len(provider.calls) == 1, "a corrupt entry must re-ask"
+    assert out.kept == ["AAA.NS", "BBB.NS", "CCC.NS"]
+
+
+def test_an_unknown_stance_in_the_cache_is_a_miss(tmp_path):
+    from desk.scanner.stage3 import VerdictCache, shortlist_digest
+    import json as _j
+
+    cache = VerdictCache(tmp_path)
+    cache.root.mkdir(parents=True, exist_ok=True)
+    digest = shortlist_digest(["AAA.NS"])
+    (cache.root / f"{DAY.isoformat()}_{digest}.json").write_text(
+        _j.dumps({"verdicts": {"AAA.NS": {"stance": "MAYBE"}}}),
+        encoding="utf-8")
+
+    provider = ScriptedProvider(replies=[_reply(("AAA.NS", "Buy"))])
+    client = MeteredClient(provider=provider, meter=_meter(tmp_path))
+    run_stage3(_stage2(("AAA.NS",)), client=client, cache=cache)
+    assert len(provider.calls) == 1
+
+
+def test_no_cache_supplied_still_works(tmp_path):
+    """The cache is optional - the backtest passes no client at all."""
+    out = run_stage3(_stage2(), client=_client(tmp_path, [_reply(
+        ("AAA.NS", "Buy"), ("BBB.NS", "Buy"), ("CCC.NS", "Buy"))]))
+    assert out.kept == ["AAA.NS", "BBB.NS", "CCC.NS"]
+
+
+def test_the_funnel_passes_a_cache():
+    """Wired, not merely available."""
+    import inspect
+    from desk.api import main as api
+    assert "cache=VerdictCache(" in inspect.getsource(api._run_funnel)

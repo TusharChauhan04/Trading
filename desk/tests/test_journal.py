@@ -388,3 +388,76 @@ def test_a_no_trade_plan_becomes_a_no_trade_decision():
     d = decision_from_plan(plan, now=NOON)
     assert d.is_no_trade
     assert d.no_trade_reason == "nothing cleared the risk gate"
+
+
+# --- the race that check-then-write allowed -----------------------------
+
+def test_two_concurrent_records_cannot_both_win(tmp_path):
+    """REGRESSION. `record()` was `if path.exists()` then a write - a check
+    and an action with a gap between them. FastAPI runs sync handlers in a
+    thread pool, so two /plan/today requests for the same morning (two
+    tabs, or a refresh racing the first load) could BOTH pass the check,
+    and the second silently replaced the first with no error raised.
+
+    No malice needed, and it broke the one rule the module exists for.
+    """
+    import threading
+
+    st = JournalStore(tmp_path)
+    barrier = threading.Barrier(8)
+    wins: list[int] = []
+    refusals: list[int] = []
+    other: list[BaseException] = []
+
+    def attempt(n: int) -> None:
+        d = _decision(trades=[_trade(qty=n)])
+        barrier.wait()                       # maximise the overlap
+        try:
+            st.record(d)
+            wins.append(n)
+        except JournalError:
+            refusals.append(n)
+        except BaseException as exc:         # noqa: BLE001
+            other.append(exc)
+
+    threads = [threading.Thread(target=attempt, args=(i,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not other, f"unexpected errors: {other}"
+    assert len(wins) == 1, f"{len(wins)} writers won the same day: {wins}"
+    assert len(refusals) == 7
+    # And exactly one version is on disk - not a last-writer-wins overwrite.
+    assert len(st.history(DAY)) == 1
+    assert st.latest(DAY).trades[0].qty == wins[0]
+
+
+def test_a_failed_write_does_not_block_the_day_forever(tmp_path):
+    """The claim is made before the payload is written, so a crash between
+    the two would leave a zero-byte file - and that file would be worse
+    than either outcome: record() would refuse it as present, latest()
+    would report it as absent, and the day could never be recorded."""
+    st = JournalStore(tmp_path)
+
+    class _Boom(Decision):
+        def to_json(self):
+            raise RuntimeError("serialisation blew up")
+
+    bad = _Boom(as_of=DAY, recorded_at=NOON)
+    with pytest.raises(RuntimeError):
+        st.record(bad)
+
+    assert not (tmp_path / "decisions" / f"{DAY.isoformat()}.json").exists()
+    # The day is still recordable afterwards.
+    st.record(_decision())
+    assert st.latest(DAY) is not None
+
+
+def test_the_written_decision_is_fsynced(tmp_path):
+    """Durability was not traded away for atomicity - spend and decisions
+    are the two things that cannot be recomputed."""
+    import inspect
+    src = inspect.getsource(JournalStore.record)
+    assert "os.fsync" in src
