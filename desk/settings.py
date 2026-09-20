@@ -25,14 +25,16 @@ reaches a log file has leaked, and log files get pasted into issues.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 __all__ = [
-    "DEFAULT_CAPITAL", "DEFAULT_RISK_REWARD", "Settings", "load_env",
-    "settings",
+    "DEFAULT_CAPITAL", "DEFAULT_RISK_REWARD", "Settings",
+    "configure_logging", "load_env", "settings",
 ]
 
 #: Trading capital, in rupees, when nothing else says otherwise. The web
@@ -217,6 +219,49 @@ def _float(name: str, fallback: float) -> float:
     if value <= 0:
         raise ValueError(f"{name} must be positive, got {value}")
     return value
+
+
+def configure_logging(*, level: str | None = None,
+                      path: str | Path | None = None) -> None:
+    """Make the application's own log lines actually appear.
+
+    NOTHING CONFIGURED LOGGING, so every log.info in this project was
+    discarded: the root logger defaults to WARNING with no handlers, and
+    uvicorn configures only its own `uvicorn*` loggers, never `desk.*`.
+    Verified directly - `logging.getLogger("desk.api").getEffectiveLevel()`
+    was 30 with an empty handler list.
+
+    Concretely, the funnel summary line ("plan 2026-09-17 regime=range:
+    3483 -> 1548 -> 502 -> 502 -> 3 trades") had never once been printed,
+    and warnings reached only whatever console window happened to be
+    running uvicorn. Close the window and the evidence of a bad morning
+    is gone before anyone asks about it.
+
+    DESK_LOG_FILE sends it somewhere durable, which is the point: the
+    question is always asked the NEXT day.
+
+    Never overrides a configuration someone else has already installed -
+    a host application that set up its own handlers should keep them.
+    """
+    root = logging.getLogger()
+    if root.handlers:
+        return
+
+    lvl = (level or os.environ.get("DESK_LOG_LEVEL") or "INFO").upper()
+    target = path or os.environ.get("DESK_LOG_FILE") or None
+    fmt = "%(asctime)s %(levelname)-7s %(name)s  %(message)s"
+
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if target:
+        try:
+            handlers.append(
+                RotatingFileHandler(str(target), maxBytes=5_000_000,
+                                    backupCount=3, encoding="utf-8"))
+        except OSError:
+            # An unwritable log path must not stop the desk answering.
+            pass
+    logging.basicConfig(level=getattr(logging, lvl, logging.INFO),
+                        format=fmt, handlers=handlers)
 
 
 #: Loaded once at import. Call Settings.from_env() again to re-read.

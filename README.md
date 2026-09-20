@@ -25,6 +25,101 @@ npm run dev          # http://localhost:5173
 
 API docs: <http://localhost:8000/docs>
 
+## The daily run, in order
+
+Nine commands, and the order matters. Each one writes a file the next
+step or the plan reads; skipping one does not break the plan, it makes
+the plan quietly report that a check did not run.
+
+Run them before the market opens. Everything is resumable — a rerun skips
+what is already on disk.
+
+```bash
+# 1. PRICES. The whole exchange in one request per day. --from/--to
+#    backfills a range on a single session; days already on disk are
+#    skipped, so this is safe to repeat.
+python -m desk.marketdata.refresh bhavcopy --date 2026-09-17
+python -m desk.marketdata.refresh bhavcopy --from 2026-09-01 --to 2026-09-17
+
+# 2. CALENDAR. Changes a few times a year, not daily. Without it the
+#    store cannot tell a data gap from a market holiday and says so.
+python -m desk.marketdata.refresh calendar
+
+# 3. SECOND SOURCE. Reconciles the day's NSE closes against BSE and
+#    stores the verdict. Without it the plan rests on one price source
+#    and says so.
+python -m desk.marketdata.refresh crosscheck --date 2026-09-17
+
+# 4. CORPORATE ACTIONS, per symbol. An unadjusted split inside the
+#    lookback window is an unexplained 50% gap the scanner reads as a
+#    signal.
+python -m desk.marketdata.refresh actions RELIANCE TCS INFY
+
+# --- the research layer: a DIFFERENT module. `desk.research.refresh`. ---
+
+# 5. EVENT CALENDAR. ONE market-wide request. Feeds the earnings gate,
+#    which refuses a trade whose holding window contains a result.
+#    Treated as stale after 3 days, because notice can be that short.
+python -m desk.research.refresh events
+
+# 6. FILINGS, per symbol. THE SLOW ONE: ~1,598 symbols is hours at the
+#    1s throttle, and the XBRL documents dominate it. Resumable per
+#    symbol AND per kind. --since bounds the documents fetched.
+python -m desk.research.refresh research RELIANCE TCS --kinds filings --since 2023-06-01
+
+# 7. FUNDAMENTALS TABLE. No network - recomputes from the filings
+#    already on disk, so a parser fix does not mean refetching. Prints
+#    the filing-age distribution; read it before setting any age filter.
+python -m desk.research.refresh fundamentals
+
+# 8. NEWS. Three RSS feeds, deduplicated by story. Stale after 18 hours
+#    - a headline from yesterday's close describes yesterday's market.
+python -m desk.research.refresh news
+
+# 9. OUTCOMES. Closes the loop on what was decided earlier. `settle`
+#    derives them from price history using the same exit simulator the
+#    backtest uses; `close` records what you actually did.
+python -m desk.research.refresh settle
+python -m desk.research.refresh close --day 2026-09-17 --symbol RIR.NS \
+    --price 245.30 --reason target
+```
+
+Then start the API and the web app:
+
+```bash
+.venv/Scripts/python.exe -m uvicorn desk.api.main:app --reload --port 8000
+cd web && npm run dev          # http://localhost:5173
+```
+
+### What happens if you skip a step
+
+Nothing crashes. Every missing input becomes a named caveat on the plan,
+because a check that did not run must never read like a check that
+passed:
+
+| Skipped | The plan says |
+|---|---|
+| `bhavcopy` | NO TRADE, naming the fetch command |
+| `calendar` | gaps UNCHECKED — a holiday and a missing file look alike |
+| `crosscheck` | prices rest on a single source |
+| `actions` | an unadjusted split would not have been caught |
+| `events` | the earnings gate did NOT run |
+| `research` / `fundamentals` | candidates were not screened on fundamentals |
+| `news` | Stage 3 judged the shortlist with no market context |
+| `settle` / `close` | days with trades and no recorded outcome, in red |
+
+Exit codes are meaningful, so a scheduled task can detect failure:
+**0** success, **1** something genuinely failed, **2** NSE rate-limited —
+come back later rather than treating it as broken.
+
+### Back it up
+
+`configs/journal/` is tracked in git deliberately: prices, filings and
+cross-checks can all be refetched, but what the desk decided on a given
+morning exists nowhere else. This repo has no remote — `git remote add
+origin <url>` and push, or the one artifact that cannot be regenerated
+lives on a single disk.
+
 ## The trading calendar needs real data before the API is fully healthy
 
 `desk/marketdata/calendar_in.py` refuses to guess NSE holidays — see its
@@ -176,7 +271,7 @@ the same way the snapshot itself is fetched once rather than per request.
 .\.venv\Scripts\python.exe -m pytest desk/tests -q
 ```
 
-226 tests. Symbol translation, corporate-action point-in-time correctness,
+965 tests. Symbol translation, corporate-action point-in-time correctness,
 every gate in the risk engine, the NSE source's free-text parser and bhavcopy
 parser (both tested against real payloads captured from the live API — see
 `desk/tests/fixtures/`), the trading calendar's refusal to guess, the

@@ -35,7 +35,7 @@ from desk.marketdata.symbols import SymbolError, Symbol
 from desk.plan.build import build_plan
 from desk.plan.models import DailyPlan, ScanSummary
 from desk.registry.fleet import fleet_status
-from desk.settings import Settings
+from desk.settings import Settings, configure_logging
 from desk.risk.engine import Portfolio, Position, RiskConfig, Sizing, size_position
 from desk.scanner.stage0 import run_stage0
 from desk.scanner.stage1 import REQUIRED_BARS, Stage1Result, run_stage1
@@ -51,6 +51,11 @@ from desk.scanner.stage3 import VerdictCache, run_stage3
 from desk.scanner.stage4 import run_stage4
 from desk.store import BarStore, StoreError
 from desk.strategies.catalog import catalog_status, eligible
+
+# Without this the lines below are written to nowhere - see
+# desk.settings.configure_logging. DESK_LOG_FILE makes them
+# outlive the terminal window, which is when they are read.
+configure_logging()
 
 log = logging.getLogger("desk.api")
 

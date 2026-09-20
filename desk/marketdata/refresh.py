@@ -435,9 +435,8 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--out-dir", type=Path, default=CONFIGS / "corporate_actions")
 
     r = sub.add_parser("research",
-                       help="filings, announcements, board meetings, "
-                            "shareholding and insider deals for one or more "
-                            "symbols")
+                       help="DEPRECATED alias - use "
+                            "'python -m desk.research.refresh research'")
     r.add_argument("symbols", nargs="+")
     r.add_argument("--out-dir", type=Path, default=CONFIGS / "research")
     r.add_argument("--kinds", default=",".join(RESEARCH_KINDS),
@@ -513,6 +512,21 @@ def main(argv: list[str] | None = None) -> int:
                                       bhavcopy_dir=args.bhavcopy_dir,
                                       isin_path=args.isin)
         if args.what == "research":
+            # KEPT AS AN ALIAS, NOT REMOVED. The same subcommand, with the
+            # same arguments, calling the same refresh_research(), exists
+            # in desk.research.refresh - which is where the implementation
+            # and RESEARCH_KINDS actually live, and where the four
+            # sibling commands (events, fundamentals, news, settle, close)
+            # exist with no equivalent here.
+            #
+            # Two documented ways to run one job is how they silently
+            # diverge when someone edits one and forgets the other. It
+            # still works because a script may depend on it; the pointer
+            # says where the canonical one is.
+            print("NOTE: 'desk.marketdata.refresh research' is an alias. "
+                  "The canonical command is 'python -m desk.research.refresh "
+                  "research', which also has events / fundamentals / news / "
+                  "settle / close.", file=sys.stderr)
             kinds = tuple(k.strip() for k in args.kinds.split(",") if k.strip())
             unknown = [k for k in kinds if k not in RESEARCH_KINDS]
             if unknown:
