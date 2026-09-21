@@ -150,8 +150,8 @@ def test_an_atr_that_puts_the_stop_under_zero_is_refused():
 # ===========================================================================
 
 def test_nothing_catalogued_is_tradeable_yet_and_the_result_says_so():
-    """All six sit at AUDITED, below the trusted threshold. A proposal must
-    carry that on itself - a caller that has to look the maturity up
+    """Three sit at AUDITED and three at DRAFT - none trusted. A proposal
+    must carry that on itself - a caller that has to look the maturity up
     elsewhere is a caller that will forget to."""
     r = propose("donchian_breakout", _stage1(BREAK=BREAKOUT))[0]
     assert r.metadata["trusted"] is False
@@ -344,3 +344,24 @@ def test_rsi_and_the_bands_match_the_reference_implementations():
     # loss, and the reference returns NaN rather than 100. 100 would read as
     # "maximally overbought" when the truth is "undefined".
     assert pd.isna(ref_rsi(pd.Series(np.arange(100.0, 140.0))).iloc[-1])
+
+
+def test_the_catalogued_maturities_are_what_the_docs_claim():
+    """REGRESSION on a claim I got wrong in three files and several commit
+    messages: "all six are AUDITED". Three are AUDITED and three are DRAFT.
+
+    The safety-relevant half was true either way - NOTHING is trusted - but
+    a doc that misstates where a strategy sits on the ladder is a doc that
+    will eventually be used to argue it is further along than it is. This
+    asserts the shape rather than each key, so adding a strategy does not
+    break it, and it fails loudly if anything is ever promoted without the
+    documentation moving with it."""
+    from desk.strategies.catalog import CATALOG, Maturity
+    by = {}
+    for s in CATALOG:
+        by.setdefault(s.maturity, []).append(s.key)
+    assert len(by.get(Maturity.AUDITED, [])) == 3
+    assert len(by.get(Maturity.DRAFT, [])) == 3
+    assert not any(s.trusted for s in CATALOG), (
+        "a strategy became trusted - the README, the adapters docstring and "
+        "the roadmap all state that none are, and they must move together")

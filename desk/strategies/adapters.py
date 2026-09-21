@@ -25,9 +25,10 @@ to speak - `eligible()` does, from the regime, and a strategy that names
 today's regime as hostile is silenced rather than down-weighted.
 
 MATURITY IS THE OTHER HALF OF THAT. Nothing here makes a strategy
-tradeable. `StrategySpec.trusted` is False below WALK_FORWARD and all six
-entries are AUDITED today, so these proposals are for display and for
-measurement until a walk-forward run says otherwise. `propose()` reports
+tradeable. `StrategySpec.trusted` is False below WALK_FORWARD, and today
+three entries are AUDITED and three are DRAFT - none trusted - so these
+proposals are for display and for measurement until a walk-forward run
+says otherwise. `propose()` reports
 the maturity on every result it returns so a caller cannot forget.
 """
 
@@ -373,8 +374,8 @@ def propose_all(stage1: Stage1Result, *, regime: Regime,
     """Every eligible strategy's proposals for one day, plus who stayed quiet.
 
     `trusted_only` defaults to FALSE here and True in `eligible()`, and the
-    difference is deliberate. All six strategies are AUDITED, so the trusted
-    filter returns an empty list and this endpoint would report "no
+    difference is deliberate. No catalogued strategy is trusted yet, so the
+    trusted filter returns an empty list and this endpoint would report "no
     strategies eligible" every day - true, useless, and indistinguishable
     from a bug. Showing untrusted proposals labelled with their maturity is
     how a strategy earns trust in view. NOTHING here may be sized: that is

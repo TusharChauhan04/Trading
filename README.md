@@ -160,9 +160,12 @@ regenerable cache, not configuration).
 
 The funnel runs Stage 0 -> 1 -> 2 -> 4, all deterministic, all reading
 already-fetched snapshots with **no network call of its own** - the same
-discipline as `/calendar/{day}`. Stage 3 (LLM research) is not built, so what
-exists today is the whole deterministic path, which is ~98% of the funnel by
-design: the AI reads and explains, it does not compute.
+discipline as `/calendar/{day}`. Stage 3 (LLM research) **is** built and
+wired - `_llm_client()` returns a live `MeteredClient` - but the configured
+account has no credit, so in practice every run today takes the deterministic
+path, which is ~98% of the funnel by design: the AI reads and explains, it
+does not compute. Stage 3 may only ever REMOVE names, and `narrow()` iterates
+Stage 2's own index so that holds even if the model misbehaves.
 
 ```powershell
 curl "http://localhost:8000/plan/today?day=2026-09-11&regime=trending_up"
@@ -227,19 +230,125 @@ the price. Trimming it would have put the stop somewhere the thesis was
 still intact, which is the arbitrary stop this replaces.
 
 **It has not been shown to make money, and that was measured rather than
-assumed.** Replaying 2026-06-01 to 2026-09-17:
+assumed.** Every figure below is NET of costs over the full 738 sessions on
+disk (2023-09-01 to 2026-09-17) with the regime measured per day. Earlier
+versions of this table quoted gross numbers from a 3.5-month window with the
+regime hardcoded, which flattered them by roughly 4x.
 
-| Stop | n | win % | expectancy |
+| | n | win % | net expectancy |
 | --- | --- | --- | --- |
-| ATR 2.0x (the old default) | 170 | 32.9 | -0.248R |
-| ATR 3.5x | 209 | 44.0 | -0.097R |
-| **Structural** (median 3.12x ATR) | 169 | 39.6 | -0.114R |
+| The funnel, structural stops | 1,250 | 45.4 | **-0.0817R** (SE 0.0205, z -3.98) |
+| Random selection, same machinery | ~1,246 | - | -0.031R *gross* |
 
-Structural beats the old 2.0x stop by +0.134R, but at **z = 1.42 that is not
-significant**, and a plain 3.5x ATR stop matches it (z = -0.29). The honest
-reading is that the 2.0x stop was too TIGHT and most of the gain is width,
-not placement. What structural stops definitely buy is explainability; the
-edge is still missing and it is not in the exits - see below.
+Three separate sources of loss, and the ordering is the reverse of where
+intuition pointed:
+
+| Source | Size | What moves it |
+| --- | --- | --- |
+| Round-trip costs | 0.041R | **Only** the stop width as a share of price - see below |
+| Machinery floor, which random pays too | ~0.031R | The horizon and the exits; 88% of trades time out |
+| Inverted factor signs | ~0.010R | `REVERSAL_FACTORS`, built and measured, not adopted |
+
+**Cost drag is arithmetic, not a mystery.** Every component of `CostModel`
+is a percentage of turnover, so the quantity cancels:
+
+```
+cost_R = round_trip_% / stop_distance_%
+```
+
+0.422% over a 4% stop is 0.105R; over a 12% stop it is 0.035R. Nothing else
+moves it - not trading less often, not sizing bigger, both of which scale
+cost and risk together. Confirmed independently on the strategy adapters:
+`bollinger_rsi` at a 2.90% median stop measured 0.1435R against 0.145
+predicted, `donchian_breakout` at 10.30% measured 0.0394R against 0.041.
+
+**A wider stop is not a free win, and one experiment that looked like it was
+turned out not to be.** Widening the structural buffer to 3.0x ATR produced
+gross +0.134R at a 57.9% win rate - and it was not the stops. Median stop
+distance barely moved (12.03% -> 12.65%); what changed was the UNIVERSE.
+Breaching the 15% `STOP_TOO_WIDE` ceiling needs
+`structural_% + buffer x atr_pct > 15%`, so a large buffer preferentially
+removes high-volatility names: median ATR of trades taken fell 3.63% ->
+2.21% and p90 fell 4.85% -> 2.98%, at the cost of 73% of the trade count
+(1,251 -> 337). It was a volatility filter wearing a stop's clothes, which
+matches the strongest signal in the feature study (`atr_pct`, t = -3.4).
+
+What structural stops definitely buy is explainability. The edge is still
+missing, and it is not in the exits.
+
+
+## More than one strategy
+
+The funnel is one opinion. `desk/strategies/catalog.py` describes six more -
+family, parameters, regime gates, maturity, known defects - and for a long
+time describing was all it did: a `StrategySpec` holds no entry logic, and
+nothing turned one into a trade idea.
+
+`desk/strategies/adapters.py` closes that. Each adapter reads the Stage 1
+feature table that has already been computed and returns `AnalysisResult`
+objects - the shared envelope, carrying entry zone, trigger, stop,
+T1/T2/T3 with partial fractions, invalidations and timestamped evidence.
+
+```powershell
+curl "http://localhost:8000/strategies/proposals?day=2026-09-17"
+```
+
+**The measured regime is the router.** A strategy that names today's regime
+as hostile is silenced, not down-weighted - a mean-reversion rule in a crisis
+is not a weak opinion, it is a wrong one. On 2026-09-17 the regime measured
+`range`, so both trend strategies correctly said nothing and `bollinger_rsi`
+produced 12 proposals; on a trending day that flips. This is why more than
+one strategy matters: a single rule is idle most of the time by construction.
+
+| Strategy | Speaks in | Status |
+| --- | --- | --- |
+| `donchian_breakout` | trending up | **implemented** - 31 proposals on 2026-09-17 |
+| `bollinger_rsi` | range | **implemented** - 12 proposals, every R:R clearing the 1.5 floor |
+| `supertrend_adx` | trending up/down | catalogued, no adapter |
+| `pairs_trading` | - | BUG-03 open: hedge ratio fitted on the whole sample |
+| `ml_classifier` | - | BUG-04 open: random train/test split leaks the future |
+| `opening_range_breakout` | - | parked: no intraday data exists in the system |
+
+Three outcomes are reported separately and never conflated: a strategy that
+**proposed** (possibly nothing), one **silenced** by the regime, and one
+**unimplemented** so it could not be asked. Asking for an unimplemented
+strategy raises rather than returning an empty list, because empty reads as
+"the market offered nothing".
+
+**Nothing here is sizeable.** Three sit at `AUDITED` and three at `DRAFT`
+("code exists, nothing verified") - every one below the trusted threshold,
+so `tradeable_now` comes back empty and every proposal carries its own
+maturity. A strategy becomes sizeable by surviving
+walk-forward, not by appearing in a response.
+
+### The maturity ladder, and the machine that climbs it
+
+```
+DRAFT -> AUDITED -> REVALIDATED -> WALK_FORWARD -> PAPER -> LIVE
+                                   ^ sizing starts here
+```
+
+`desk/backtest/walkforward.py` is what earns a rung. It measures a strategy
+on the funnel's own yardstick - Stage 0's universe, Stage 1's features,
+`size_position` with every gate, `simulate_trade` for exits, `BacktestResult`
+for costs - so a strategy at -0.05R and the funnel at -0.082R are comparable
+because nothing between them differs.
+
+It **refuses to promote on an aggregate**. A rule that earns its whole result
+in one window and loses the rest has shown one good quarter, not an edge, and
+a pooled mean cannot tell those apart. Windows are disjoint rather than
+rolling: overlapping windows share trades, so "positive in 3 of 4" would
+count the same trades twice and read as corroboration when it is repetition.
+
+Two things it does not simulate, declared on every result rather than left
+implicit: a strategy's own exit (Donchian's channel exit is not modelled, so
+its number is a lower bound on a rule whose stated edge includes cutting
+failures early), and portfolio interaction between strategies.
+
+Walk-forward is labelled honestly here. These strategies have **no fitted
+parameters** - 20/10/2.0 and 20/2.0/14/30 are catalog constants, not values
+optimised on this data - so splitting the history buys no protection against
+overfitting, because no fitting happened. It buys a test of *stability*.
 
 
 ## Health and staleness
