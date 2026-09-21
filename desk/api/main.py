@@ -50,6 +50,7 @@ from desk.scanner.stage2 import run_stage2
 from desk.scanner.stage3 import VerdictCache, run_stage3
 from desk.scanner.stage4 import run_stage4
 from desk.store import BarStore, StoreError
+from desk.strategies.adapters import ADAPTERS, propose_all
 from desk.strategies.catalog import catalog_status, eligible
 
 # Without this the lines below are written to nowhere - see
@@ -941,6 +942,79 @@ def strategies() -> list[dict]:
 def strategies_eligible(regime: Regime, trusted_only: bool = True) -> list[str]:
     """Who may speak in a given regime. Hostile-regime strategies are silenced."""
     return [s.key for s in eligible(regime, trusted_only=trusted_only)]
+
+
+@app.get("/strategies/proposals", tags=["strategies"])
+def strategy_proposals(
+    day: date | None = None,
+    lookback: int = Query(default=252, ge=30, le=LOOKBACK_CEILING),
+    min_price: float = Query(default=20.0, ge=0),
+    min_turnover_lacs: float = Query(default=100.0, ge=0),
+    min_bars: int = Query(default=30, ge=2, le=500),
+    trusted_only: bool = False,
+    limit_per_strategy: int = Query(default=25, ge=1, le=200),
+) -> dict:
+    """What every ELIGIBLE catalogued strategy proposes for one session.
+
+    The desk's second opinion, and until now it did not exist: the plan has
+    only ever come from the Stage 2 factor funnel, while five other
+    catalogued strategies sat as documentation. This runs each one that the
+    measured regime permits to speak and returns its proposals in the
+    shared `AnalysisResult` envelope.
+
+    NOTHING HERE IS SIZED OR TRADEABLE. Every catalogued strategy is at
+    maturity AUDITED, which is below the trusted threshold, so
+    `tradeable_now` comes back empty and every proposal carries its own
+    maturity in `metadata`. These are for reading and for measuring; a
+    strategy becomes sizeable by surviving walk-forward, not by appearing
+    here.
+
+    `trusted_only` defaults to FALSE, unlike /strategies/eligible. With it
+    True this endpoint would return nothing every single day - accurate,
+    useless, and impossible to tell apart from a broken scan.
+
+    Three outcomes are reported separately and must not be conflated:
+    a strategy that PROPOSED (possibly nothing, because no name in the
+    universe fired its rule), one that was SILENCED because today's regime
+    is hostile to it, and one that is UNIMPLEMENTED so it could not be
+    asked at all.
+    """
+    target = day or _latest_snapshot_day()
+    if target is None:
+        raise HTTPException(404, "no market snapshot on file - run "
+                                 "'python -m desk.marketdata.refresh bhavcopy'")
+    _require_snapshot(target)
+    try:
+        stage1, caveats = _stage1_for(target, lookback=lookback,
+                                      min_price=min_price,
+                                      min_turnover_lacs=min_turnover_lacs,
+                                      min_bars=min_bars)
+    except StoreError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+    # MEASURED, not assumed - the regime is what decides who may speak, so
+    # defaulting it to UNKNOWN here would quietly let every strategy talk on
+    # every day and silently delete the whole gating mechanism.
+    store = BarStore(CONFIGS / "bhavcopy", calendar=_calendar_or_none())
+    history = store.history(as_of=target, lookback=lookback,
+                            symbols=list(stage1.features.index),
+                            columns=list(REQUIRED_BARS))
+    state = compute_regime(history, as_of=target,
+                           sectors=SectorMap.load(CONFIGS / "sectors.json"))
+
+    out = propose_all(stage1, regime=state.label, trusted_only=trusted_only,
+                      limit_per_strategy=limit_per_strategy)
+    return {
+        **out,
+        "as_of": target.isoformat(),
+        "regime_measured": state.is_measured,
+        "universe_scanned": int(stage1.universe_out),
+        "counts": {k: len(v) for k, v in out["proposals"].items()},
+        "implemented": sorted(ADAPTERS),
+        "caveats": list(caveats),
+    }
 
 
 # --------------------------------------------------------------- symbols ---

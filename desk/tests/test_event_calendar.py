@@ -225,14 +225,52 @@ def test_the_api_treats_a_stale_calendar_as_absent(tmp_path, monkeypatch):
 
 
 def test_the_api_uses_a_fresh_calendar(tmp_path, monkeypatch):
+    """`today=DAY` is load-bearing, not tidiness.
+
+    Without it `_event_calendar` measures staleness against the WALL CLOCK,
+    so this test asserted "a calendar fetched on 2026-09-18 is fresh" and
+    the answer changed as the real date advanced. It passed while the
+    machine's clock was within the 3-day window of that fixture and began
+    failing on the fourth day - a red suite caused by the calendar on the
+    wall rather than by any code, which is the most expensive kind of
+    failure to debug because nothing in the diff explains it.
+
+    Staleness is measured against the DECISION date by design (see the
+    function's own docstring), and the decision date here is DAY. Pinning
+    it is also the more honest test: the rule under test is "a calendar
+    fetched the morning of the decision is fresh", and that statement
+    should not depend on when the suite happens to run.
+    """
     from desk.api import main as api
     (tmp_path / "research").mkdir()
     save_calendar(_events(), tmp_path / "research" / "event_calendar.json",
                   fetched_at=datetime(2026, 9, 18, 8, tzinfo=IST))
     monkeypatch.setattr(api, "CONFIGS", tmp_path)
-    cal, caveats = api._event_calendar(DAY)
+    cal, caveats = api._event_calendar(DAY, today=DAY)
     assert isinstance(cal, EventCalendar)
     assert caveats == []
+
+
+def test_a_calendar_older_than_the_window_is_stale_on_any_clock(tmp_path,
+                                                                monkeypatch):
+    """The boundary the test above used to straddle, pinned on both sides.
+
+    Measured: fetched 2026-09-18, the calendar reads fresh at a decision
+    date of 2026-09-21 (3 days) and stale at 2026-09-22 (4 days). Notice
+    is that short in Indian markets, which is why the window is tight.
+    """
+    from desk.api import main as api
+    (tmp_path / "research").mkdir()
+    save_calendar(_events(), tmp_path / "research" / "event_calendar.json",
+                  fetched_at=datetime(2026, 9, 18, 8, tzinfo=IST))
+    monkeypatch.setattr(api, "CONFIGS", tmp_path)
+
+    fresh, _ = api._event_calendar(DAY, today=date(2026, 9, 21))
+    assert isinstance(fresh, EventCalendar), "3 days old must still count"
+
+    stale, caveats = api._event_calendar(DAY, today=date(2026, 9, 22))
+    assert stale is None, "4 days old must be treated as absent, not used"
+    assert caveats and "4 day(s) ago" in caveats[0]
 
 
 def test_no_llm_key_means_no_client_and_no_spend(monkeypatch):

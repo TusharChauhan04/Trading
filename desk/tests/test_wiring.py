@@ -50,10 +50,6 @@ ENTRY_POINTS = (
 #: EDIT THIS ON PURPOSE. An entry added to silence a failure, without a
 #: reason that survives being read aloud, defeats the file.
 EXPECTED_UNWIRED = {
-    "desk.contracts.envelope":
-        "The agent-integration boundary. Unused because NO AGENT IS WIRED "
-        "yet - 0 of 6 strategies are on disk. Pending integration, not "
-        "forgotten code. Delete this entry the day an agent lands.",
     "desk.indicators.trend":
         "Reference implementation. Stage 1 computes features vectorised; "
         "test_stage1 imports these as ref_* to prove parity. Wiring them "

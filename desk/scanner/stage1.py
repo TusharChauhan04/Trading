@@ -83,6 +83,7 @@ FEATURE_COLUMNS = (
     "dist_sma20_pct", "dist_sma50_pct", "dist_sma200_pct",
     "pos_52w_pct", "high_52w", "low_52w",
     "swing_low", "swing_low_age", "low_20",
+    "prior_high_20", "prior_low_10",
     "bb_width_pct", "compressed",
     "rs_rank",
     "unusual_volume", "unusual_move", "near_52w_high", "extended",
@@ -324,6 +325,31 @@ def run_stage1(
         out["swing_low"] = np.nan
         out["swing_low_age"] = np.nan
         out["low_20"] = np.nan
+
+    # --- breakout channel --------------------------------------------------
+    # EXCLUDING TODAY, and that is the whole correctness of a breakout rule
+    # rather than a detail of it. A channel computed over a window that
+    # CONTAINS the current bar can never be broken: the bar's own high is in
+    # the max, and `high >= close` always, so `close > channel_high` is
+    # arithmetically impossible and the rule would fire exactly never - a
+    # strategy that silently proposes nothing and looks like a quiet market.
+    # `.shift(1)` first, then roll, so the channel is what the market had
+    # already established when today opened.
+    #
+    # 20 up / 10 down are the catalog's donchian_breakout parameters
+    # (entry_lookback, exit_lookback), kept here rather than in the adapter
+    # because this is where the history is - the adapter sees one row per
+    # symbol and could not compute a rolling window if it wanted to.
+    if high is not None:
+        out["prior_high_20"] = _finite(
+            high.shift(1).rolling(20, min_periods=20).max().iloc[-1])
+    else:
+        out["prior_high_20"] = np.nan
+    if low is not None:
+        out["prior_low_10"] = _finite(
+            low.shift(1).rolling(10, min_periods=10).min().iloc[-1])
+    else:
+        out["prior_low_10"] = np.nan
 
     # --- compression -------------------------------------------------------
     mid = sma20
