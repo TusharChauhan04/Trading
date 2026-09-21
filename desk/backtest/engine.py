@@ -55,7 +55,8 @@ from desk.backtest.simulate import SimulatedTrade, simulate_trade
 from desk.contracts.enums import Regime
 from desk.scanner.stage1 import REQUIRED_BARS
 
-__all__ = ["BacktestResult", "DayResult", "run_backtest"]
+__all__ = ["BacktestResult", "DayResult", "run_backtest",
+           "min_risk_pct_for"]
 
 
 @dataclass(slots=True)
@@ -272,6 +273,32 @@ class BacktestResult:
         return "\n".join(lines)
 
 
+def min_risk_pct_for(costs: CostModel, cfg: "RiskConfig | None" = None
+                     ) -> float:
+    """The realised stop-distance floor implied by the cost model.
+
+    `size_position` refuses a setup when expected slippage would consume
+    more than `max_slippage_share_of_stop_pct` of the stop distance. Turn
+    that around and it is a floor on the distance itself:
+
+        slippage_pct / (max_share / 100)
+
+    With the defaults - 15 bps a side and a 25% share cap - that is 0.6% of
+    price. A stop nearer than that cannot survive its own fill, and the
+    engine would have said so had it known the fill; it could not, because
+    the gap between the decision and the next open is what shrinks the
+    realised distance.
+
+    Derived rather than chosen, so it moves when the cost assumptions move.
+    A desk paying a full-service broker's slippage should refuse tighter
+    stops, and it will, without anyone remembering to update a constant.
+    """
+    from desk.risk.engine import RiskConfig
+    cfg = cfg or RiskConfig(capital=1_000_000)
+    slippage_pct = costs.slippage_bps / 100.0
+    share = cfg.max_slippage_share_of_stop_pct / 100.0
+    return slippage_pct / share if share > 0 else 0.0
+
 def run_backtest(store, *, start: date, end: date, capital: float = 1_000_000,
                  max_trades: int = 3, lookback: int = 120,
                  holding_days: int = 5, regime: Regime = Regime.UNKNOWN,
@@ -305,6 +332,9 @@ def run_backtest(store, *, start: date, end: date, capital: float = 1_000_000,
     # see it: every decision is already fixed before this frame is touched.
     forward = store.history(as_of=available[-1], start=sessions[0],
                             columns=["open", "high", "low", "close"])
+
+    # Computed once: it depends only on the cost model, not on the day.
+    floor_pct = min_risk_pct_for(result.costs)
 
     # And the BACKWARD window the funnel itself needs, loaded once for the
     # whole replay. `_run_funnel` used to call store.history() per session,
@@ -367,7 +397,8 @@ def run_backtest(store, *, start: date, end: date, capital: float = 1_000_000,
             sim = simulate_trade(bars, symbol=trade.symbol, decided_on=day,
                                  planned_entry=trade.entry, stop=trade.stop,
                                  target=trade.target, qty=trade.qty,
-                                 horizon_days=holding_days)
+                                 horizon_days=holding_days,
+                                 min_risk_pct=floor_pct)
             if sim.trade is None:
                 why = sim.reason_not_taken or "unknown"
                 result.not_taken[why] = result.not_taken.get(why, 0) + 1

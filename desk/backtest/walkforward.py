@@ -52,7 +52,8 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from desk.backtest.costs import CostModel
-from desk.backtest.engine import BacktestResult, DayResult
+from desk.backtest.engine import (BacktestResult, DayResult,
+                                  min_risk_pct_for)
 from desk.backtest.simulate import simulate_trade
 from desk.marketdata.sectors import SectorMap
 from desk.regime.engine import compute_regime
@@ -227,6 +228,7 @@ def run_strategy_backtest(store, key: str, *, start: date, end: date,
     sectors = SectorMap.load(store.root.parent / "sectors.json") \
         if (store.root.parent / "sectors.json").is_file() else None
 
+    floor_pct = min_risk_pct_for(result.costs, risk)
     eligible_days = silenced_days = 0
     for i, day in enumerate(sessions, 1):
         if progress:
@@ -285,7 +287,8 @@ def run_strategy_backtest(store, key: str, *, start: date, end: date,
             sim = simulate_trade(bars, symbol=idea.symbol, decided_on=day,
                                  planned_entry=sized.entry, stop=sized.stop,
                                  target=sized.target, qty=sized.qty,
-                                 horizon_days=holding_days)
+                                 horizon_days=holding_days,
+                                 min_risk_pct=floor_pct)
             if sim.trade is None:
                 why = sim.reason_not_taken or "unknown"
                 result.not_taken[why] = result.not_taken.get(why, 0) + 1

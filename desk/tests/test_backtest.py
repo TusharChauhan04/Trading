@@ -41,10 +41,12 @@ def _bars(rows):
         index=idx)
 
 
-def _run(rows, *, entry=200.0, stop=180.0, target=250.0, qty=10, horizon=5):
+def _run(rows, *, entry=200.0, stop=180.0, target=250.0, qty=10, horizon=5,
+         min_risk_pct=None):
     return simulate_trade(_bars(rows), symbol="X.NS", decided_on=DECIDED,
                           planned_entry=entry, stop=stop, target=target,
-                          qty=qty, horizon_days=horizon)
+                          qty=qty, horizon_days=horizon,
+                          min_risk_pct=min_risk_pct)
 
 
 # --- the ambiguity, which is the whole point -----------------------------
@@ -419,3 +421,61 @@ def test_the_engine_loads_forward_prices_once_not_per_trade():
                    if ln.strip().startswith("for i, day in enumerate("))
     assert not any("store.history(" in ln for ln in code[loop_at:]),         "a price read inside the session loop re-scans overlapping files"
     assert sum(1 for ln in code[:loop_at] if "store.history(" in ln) == 2,         "expected exactly two hoisted reads: forward prices and lookback"
+
+
+# ===========================================================================
+# the realised stop-distance floor - the tick guard was not sufficient
+# ===========================================================================
+
+def test_the_floor_is_derived_from_the_cost_model_not_chosen():
+    """`size_position` refuses a setup whose expected slippage would eat
+    more than max_slippage_share_of_stop_pct of the stop distance. Inverted,
+    that is a floor on the distance: slippage_pct / (max_share/100). With
+    the defaults - 15bps a side, 25% share cap - 0.6% of price.
+
+    Derived rather than hard-coded so it tracks the cost assumptions: a
+    desk paying more slippage must refuse tighter stops, and it will
+    without anyone remembering to update a constant."""
+    from desk.backtest.costs import CostModel, ZERO_COSTS
+    from desk.backtest.engine import min_risk_pct_for
+    from desk.risk.engine import RiskConfig
+
+    assert min_risk_pct_for(CostModel()) == pytest.approx(0.6)
+    assert min_risk_pct_for(CostModel(slippage_bps=50)) == pytest.approx(2.0)
+    assert min_risk_pct_for(
+        CostModel(), RiskConfig(capital=1e6,
+                                max_slippage_share_of_stop_pct=10)
+    ) == pytest.approx(1.5)
+    # No slippage assumed means no reason to refuse a tight stop.
+    assert min_risk_pct_for(ZERO_COSTS) == pytest.approx(0.0)
+
+
+def test_a_fill_above_a_tick_but_under_the_floor_is_still_refused():
+    """The gap the tick guard left open, and the one that mattered.
+
+    MEASURED: one trade of 1,251 filled roughly 1.7 paise from its stop on
+    a four-figure price - comfortably above a tick - and its round-trip
+    cost came to 251R, moving the mean cost per trade from 0.035R to
+    0.242R. Its gross R looked entirely normal, which is why nothing caught
+    it: the distortion only appears once something is divided by that risk.
+    """
+    # stop 180; an open at 180.90 is 0.50% of the fill, under the 0.6% floor
+    sim = _run([("2026-09-17", 200, 201, 199, 200),
+                ("2026-09-18", 180.90, 186, 180.5, 185)], min_risk_pct=0.6)
+    assert sim.trade is None
+    assert "under the 0.60% floor" in sim.reason_not_taken
+
+    # and comfortably clear of it, the same setup IS a trade
+    ok = _run([("2026-09-17", 200, 201, 199, 200),
+               ("2026-09-18", 190, 196, 189, 195)], min_risk_pct=0.6)
+    assert ok.trade is not None
+
+
+def test_the_floor_is_opt_in_so_no_existing_caller_changes_behaviour():
+    """Default None. A caller that does not ask for the floor gets exactly
+    what it got before, which is what makes this safe to add underneath
+    two harnesses and a journal."""
+    tight = [("2026-09-17", 200, 201, 199, 200),
+             ("2026-09-18", 180.90, 186, 180.5, 185)]
+    assert _run(tight).trade is not None, "unchanged without the floor"
+    assert _run(tight, min_risk_pct=0.6).trade is None

@@ -123,7 +123,8 @@ class ExitSimulation:
 def simulate_trade(bars: pd.DataFrame, *, symbol: str, decided_on: date,
                    planned_entry: float | None, stop: float,
                    target: float | None, qty: int,
-                   horizon_days: int = 5) -> ExitSimulation:
+                   horizon_days: int = 5,
+                   min_risk_pct: float | None = None) -> ExitSimulation:
     """Enter on the session after `decided_on`; walk forward to an exit.
 
     `bars` is one symbol's daily OHLC indexed by date, and it MUST NOT be
@@ -135,6 +136,29 @@ def simulate_trade(bars: pd.DataFrame, *, symbol: str, decided_on: date,
     Returns an ExitSimulation whose `trade` is None when the position could
     never be opened, with the reason. A trade that could not be entered is
     not a trade that broke even.
+
+    `min_risk_pct` is the REALISED stop distance floor, as a percentage of
+    the fill, and it defaults to None so nothing changes for a caller that
+    does not ask. It exists because the tick floor below is necessary and
+    not sufficient.
+
+    MEASURED. Over 2023-09-01 to 2026-09-17 one trade of 1,251 filled with
+    a stop roughly 1.7 paise away on a four-figure price - above a tick, so
+    the tick guard passed it - and its round-trip cost came to 251R. That
+    single trade moved the mean cost per trade from 0.035R to 0.242R and
+    made every cost-adjusted mean in the project unreadable. Its gross R
+    was unremarkable, which is why nothing caught it: the distortion only
+    appears once something is divided by that risk.
+
+    The threshold is not invented here. `size_position` already refuses a
+    setup whose expected slippage would eat more than
+    `max_slippage_share_of_stop_pct` of the stop distance - a stop too
+    tight to survive its own fill. It applies that to the PLANNED stop
+    distance, because the fill has not happened yet; the gap between
+    decision and open is exactly what can shrink the realised distance to
+    nothing. This re-applies the engine's own rule at the only moment the
+    realised number is known. See `min_risk_pct_for` in
+    desk.backtest.engine for the derivation.
     """
     if qty <= 0:
         return ExitSimulation(None, "quantity was zero")
@@ -190,6 +214,14 @@ def simulate_trade(bars: pd.DataFrame, *, symbol: str, decided_on: date,
         return ExitSimulation(
             None, "gapped to within a tick of the stop before entry - "
                   "setup invalidated")
+
+    if min_risk_pct is not None:
+        risk_pct = 100.0 * (entry_price - stop) / entry_price
+        if risk_pct < min_risk_pct:
+            return ExitSimulation(
+                None, f"gapped to within {risk_pct:.3f}% of the stop, under "
+                      f"the {min_risk_pct:.2f}% floor - slippage alone would "
+                      f"consume the trade")
     if target is not None and entry_price >= target:
         return ExitSimulation(
             None, "gapped past the target before entry - setup invalidated")
