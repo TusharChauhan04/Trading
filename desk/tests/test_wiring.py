@@ -44,6 +44,7 @@ ENTRY_POINTS = (
     "desk.research.refresh",      # the research CLI
     "desk.backtest.engine",       # the backtest harness
     "desk.backtest.baseline",     # the random-baseline harness
+    "desk.backtest.walkforward",  # the per-strategy walk-forward harness
 )
 
 #: Modules that are legitimately not reachable, each with its reason.
