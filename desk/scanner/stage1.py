@@ -84,7 +84,7 @@ FEATURE_COLUMNS = (
     "pos_52w_pct", "high_52w", "low_52w",
     "swing_low", "swing_low_age", "low_20",
     "prior_high_20", "prior_low_10",
-    "bb_width_pct", "compressed",
+    "bb_width_pct", "bb_mid", "bb_lower", "rsi_14", "compressed",
     "rs_rank",
     "unusual_volume", "unusual_move", "near_52w_high", "extended",
     "flag_count",
@@ -326,6 +326,26 @@ def run_stage1(
         out["swing_low_age"] = np.nan
         out["low_20"] = np.nan
 
+    # --- momentum oscillator -----------------------------------------------
+    # Wilder RSI, vectorised across the universe. The reference is
+    # strategies/india/strategy_lib.rsi, which the catalog's bollinger_rsi
+    # spec is written against, and this reproduces it EXACTLY - including
+    # the part that looks like an omission.
+    #
+    # A name with no down bar in the window has zero average loss. The
+    # reference divides by `loss.replace(0, np.nan)`, so that name's RSI is
+    # NaN rather than the 100 the formula would otherwise give. That is the
+    # right answer here: 100 would read as "maximally overbought" and feed
+    # straight into an overbought rule, when what actually happened is that
+    # the indicator is undefined. Matching it also keeps the parity test
+    # honest - reproducing everything except the awkward case is how two
+    # implementations quietly diverge on exactly the rows that matter.
+    delta = close.diff()
+    gain = delta.clip(lower=0).ewm(alpha=1 / 14, adjust=False).mean()
+    loss = (-delta.clip(upper=0)).ewm(alpha=1 / 14, adjust=False).mean()
+    rs = gain / loss.replace(0, np.nan)
+    out["rsi_14"] = _finite((100.0 - (100.0 / (1.0 + rs))).iloc[-1])
+
     # --- breakout channel --------------------------------------------------
     # EXCLUDING TODAY, and that is the whole correctness of a breakout rule
     # rather than a detail of it. A channel computed over a window that
@@ -356,6 +376,19 @@ def run_stage1(
     std = close.rolling(20).std()
     width = 100.0 * (4.0 * std) / _price(mid)   # 2 std either side of the mid
     out["bb_width_pct"] = _finite(width.iloc[-1])
+
+    # The BANDS themselves, not just their width. bollinger_rsi needs the
+    # lower band as a price to compare a close against, and the mid as its
+    # reversion target - width alone cannot answer either question.
+    #
+    # Same construction as desk.indicators.volatility.bollinger_bands and
+    # strategies/india/strategy_lib.bollinger_bands: a 20-period simple mean
+    # and pandas' default SAMPLE standard deviation (ddof=1). The ddof is
+    # worth naming because numpy defaults to 0 and the two disagree by
+    # sqrt(20/19) - about 2.6% of the band width, which is enough to move a
+    # close from just inside the band to just outside it and flip a signal.
+    out["bb_mid"] = _finite(mid.iloc[-1])
+    out["bb_lower"] = _finite((mid - 2.0 * std).iloc[-1])
     squeeze = width.rolling(120, min_periods=40).quantile(0.20)
     out["compressed"] = (width <= squeeze).iloc[-1].fillna(False).astype(bool)
 
