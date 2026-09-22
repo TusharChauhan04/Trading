@@ -82,7 +82,9 @@ CATALOG: list[StrategySpec] = [
             "BUG-02 (fixed in lib): ADX was SMA-smoothed, so signals fired on "
             "different bars than the TradingView chart being watched",
         ],
-        notes="The most defensible of the six. Whipsaw in a range is the whole risk.",
+        notes="The most defensible of the six. Whipsaw in a range is the "
+              "whole risk. NOT MEASURED YET - no adapter, so the "
+              "walk-forward below covers donchian and bollinger only.",
     ),
     StrategySpec(
         key="bollinger_rsi",
@@ -101,8 +103,19 @@ CATALOG: list[StrategySpec] = [
             "BUG-02 (fixed in lib): RSI was SMA-smoothed, not Wilder",
             "No regime gate: as written it buys every step of a downtrend",
         ],
-        notes="Mean reversion in a crisis is how accounts die. This one needs the "
-              "regime engine before it goes anywhere near a live plan.",
+        notes="Mean reversion in a crisis is how accounts die, and the "
+              "regime gate now enforces that - TRENDING_DOWN and CRISIS "
+              "are hostile and propose_all silences them. "
+              "WALK-FORWARD 2026-09-22, 2023-09-01 to 2026-09-17, four "
+              "disjoint windows: pooled -0.2776R net over 961 trades, "
+              "NEGATIVE IN ALL FOUR (-0.063, -0.290, -0.215, -0.495) and "
+              "worsening. Median net R is -1.08, so the majority outcome "
+              "is a full stop plus costs - the win rate of 28-41% counts "
+              "any positive R, most of which are small time exits, not "
+              "targets. Caveat that is MINE not the catalog's: the spec "
+              "names no stop, so the adapter derives one at mid - 3 sigma. That leaves only 1 sigma of room below a 2-sigma entry, and the stop "
+              "being hit is what kills it. A wider stop is the first "
+              "thing to retest before concluding the RULE fails.",
     ),
     StrategySpec(
         key="donchian_breakout",
@@ -121,8 +134,17 @@ CATALOG: list[StrategySpec] = [
             "Unadjusted data turns every split into a fake breakdown",
             "Low win rate by construction - needs a large trade count to judge at all",
         ],
-        notes="Cheapest of the six to validate, because the rule has almost no "
-              "parameters to overfit.",
+        notes="Cheapest of the six to validate, because the rule has "
+              "almost no parameters to overfit. WALK-FORWARD 2026-09-22, "
+              "2023-09-01 to 2026-09-17, four disjoint windows: pooled "
+              "-0.2372R net over 1,608 trades, NEGATIVE IN ALL FOUR "
+              "(-0.243, -0.251, -0.187, -0.267). The consistency is the "
+              "point - four windows inside a 0.08R band is not a "
+              "sample-size problem, it is a stable negative edge. "
+              "Caveat: the channel EXIT is not simulated, so this "
+              "measures the setup and is a lower bound on a rule whose "
+              "stated edge includes cutting failures early. Testing that "
+              "exit is the one thing owed before retiring this rule.",
     ),
     StrategySpec(
         key="pairs_trading",
