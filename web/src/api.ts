@@ -131,6 +131,48 @@ export interface SymbolInfo {
   dialects: Record<string, string>;
 }
 
+/** One strategy's proposal, as `desk.contracts.envelope.AnalysisResult`
+ *  serialises it. Fields a producer could not fill are null rather than
+ *  guessed, so the UI must render absence rather than substitute a zero. */
+export interface Proposal {
+  agent: string;
+  symbol: string;
+  as_of: string;
+  stance: Stance;
+  confidence: number;
+  setup_type: string;
+  entry: number | null;
+  entry_zone: { low: number; high: number } | null;
+  trigger: string;
+  stop: number | null;
+  target: number | null;
+  targets: { price: number; fraction: number; rationale: string }[];
+  invalidations: string[];
+  narrative: string;
+  errors: string[];
+  metadata: Record<string, unknown>;
+}
+
+/** Three outcomes that must never be collapsed into one: a strategy that
+ *  PROPOSED (possibly nothing), one SILENCED because today's regime is
+ *  hostile to it, and one UNIMPLEMENTED so it could not be asked at all.
+ *  `tradeable_now` is empty until a strategy survives walk-forward. */
+export interface ProposalsResponse {
+  as_of: string;
+  regime: string;
+  regime_measured: boolean;
+  trusted_only: boolean;
+  universe_scanned: number;
+  proposals: Record<string, Proposal[]>;
+  silenced: Record<string, string>;
+  unimplemented: Record<string, string>;
+  tradeable_now: string[];
+  counts: Record<string, number>;
+  implemented: string[];
+  caveats: string[];
+}
+
+
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`);
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
@@ -153,6 +195,14 @@ export const api = {
   strategies: () => get<StrategySpec[]>("/strategies"),
   eligible: (regime: string, trustedOnly: boolean) =>
     get<string[]>(`/strategies/eligible/${regime}?trusted_only=${trustedOnly}`),
+  // trusted_only=false by default, matching the endpoint. Nothing is
+  // trusted yet, so true would return an empty page every day - accurate,
+  // useless, and impossible to tell from a broken scan.
+  proposals: (day?: string) =>
+    get<ProposalsResponse>(
+      day ? `/strategies/proposals?day=${encodeURIComponent(day)}`
+          : "/strategies/proposals",
+    ),
   symbol: (raw: string) => get<SymbolInfo>(`/symbols/${encodeURIComponent(raw)}`),
   defaultConfig: () => get<RiskConfig>("/risk/config/default"),
   // `capital` is what the risk engine sizes every position against, so it

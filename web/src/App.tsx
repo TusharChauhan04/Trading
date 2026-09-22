@@ -8,6 +8,7 @@ import NewsView from "./components/NewsView";
 import RegimeView from "./components/RegimeView";
 import RiskSizer from "./components/RiskSizer";
 import StrategyCatalog from "./components/StrategyCatalog";
+import StrategyProposals from "./components/StrategyProposals";
 import SymbolLookup from "./components/SymbolLookup";
 
 const TABS = [
@@ -17,6 +18,7 @@ const TABS = [
   { id: "news", label: "News", el: <NewsView /> },
   { id: "health", label: "Data health", el: <DataHealthView /> },
   { id: "risk", label: "Risk sizer", el: <RiskSizer /> },
+  { id: "proposals", label: "Proposals", el: <StrategyProposals /> },
   { id: "strategies", label: "Strategies", el: <StrategyCatalog /> },
   { id: "fleet", label: "Fleet", el: <FleetPanel /> },
   { id: "symbols", label: "Symbols", el: <SymbolLookup /> },
