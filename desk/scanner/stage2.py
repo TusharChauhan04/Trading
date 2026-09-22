@@ -250,6 +250,42 @@ def run_stage2(
     designed - but pass False to rank the full surviving universe when you
     want to see where an ordinary name sits rather than only the outliers.
 
+    MEASURED 2026-09-22, AND THE DEFAULT IS NOW IN QUESTION. The flags do
+    not select outperformers; two of the four select the opposite. Over 123
+    sessions sampled from 2023-09-01 to 2026-09-17, comparing each flagged
+    group against the rest of that day's universe with the day's own
+    cross-sectional mean removed - so this is "did these names beat their
+    peers today", not market drift - forward 5-session returns came out:
+
+        flag             mean edge      t     read
+        ANY  (the gate)    -0.149%   -2.80    HARMFUL
+        unusual_volume     -0.318%   -4.24    HARMFUL
+        unusual_move       -0.807%   -4.75    HARMFUL, and the largest
+                                              single effect measured in
+                                              this project
+        near_52w_high      +0.283%   +1.20    no signal
+        compressed         -0.062%   -1.02    no signal
+
+    The flags admit a median 34.9% of the universe, so the gate discards
+    two names in three and the third it keeps is worse than the ones it
+    threw away. That happens BEFORE any factor sign matters: correcting
+    factor directions while this default stands would be re-ranking a set
+    that should not have been selected.
+
+    It is coherent with everything else measured rather than a surprise.
+    `unusual_move` is |ret_1d| >= 1.5 x atr_pct and `unusual_volume` is a
+    volume multiple - both are volatility in disguise, and low volatility
+    is the strongest signal in the feature study (atr_pct t -3.4) and the
+    mechanism behind the buffer-3.0 result (median ATR of trades taken
+    2.21% against a baseline 3.63%). Three independent measurements, one
+    direction.
+
+    NOT CHANGED HERE. The default stays True until a net-of-costs backtest
+    says a different pool earns more - the same bar REVERSAL_FACTORS is
+    held to. A measurement about SELECTION is not yet a measurement about
+    MONEY, and this codebase has already been caught once promoting the
+    first into the second.
+
     `min_factors` (default 3) is the floor below which a name is DROPPED. A
     name scored on one factor is not comparable with one scored on five, and
     averaging over whatever happened to be available quietly rewards names

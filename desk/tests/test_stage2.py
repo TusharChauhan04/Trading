@@ -436,3 +436,27 @@ def test_the_reversal_set_actually_ranks_and_inverts_the_default_order():
                    min_factors=1)
     assert d.ranked.index[0] == "MOMO.NS", "default should favour the mover"
     assert r.ranked.index[0] == "QUIET.NS", "reversal should favour the loser"
+
+
+def test_flagged_only_still_defaults_true_despite_the_measurement():
+    """The D1 finding is recorded in run_stage2's docstring and has NOT
+    been acted on, deliberately.
+
+    Stage 1's flag gate admits a median 34.9% of the universe and those
+    names underperform the ones it discards by 0.149% per 5 sessions
+    (t -2.80), driven by unusual_move (-0.807%, t -4.75) and
+    unusual_volume (-0.318%, t -4.24). That is a measurement about
+    SELECTION. Whether a different pool earns more money is a different
+    question, and this project has already been caught once promoting the
+    first into the second.
+
+    So the default stands until a net-of-costs backtest moves it, and this
+    test is the tripwire: changing the default without the measurement is
+    exactly the shortcut the docstring argues against."""
+    import inspect
+    from desk.scanner.stage2 import run_stage2
+    assert inspect.signature(run_stage2).parameters["flagged_only"].default \
+        is True
+    doc = run_stage2.__doc__
+    assert "MEASURED 2026-09-22" in doc, "the finding must travel with the code"
+    assert "NOT CHANGED HERE" in doc
