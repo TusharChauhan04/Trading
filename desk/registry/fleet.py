@@ -42,6 +42,30 @@ FLEET: list[FleetEntry] = [
         blockers=["no adapter yet", "pinned to a bare commit - no release tags"],
     ),
     FleetEntry(
+        name="openterminal_ui", kind="hybrid", version="0.1.0",
+        capabilities=[Capability.BACKTEST, Capability.TECHNICAL,
+                      Capability.FUNDAMENTAL, Capability.SCREENING,
+                      Capability.SENTIMENT, Capability.PATTERN],
+        asset_classes=[AssetClass.EQUITY, AssetClass.INDEX],
+        horizons=[Horizon.INTRADAY, Horizon.SWING, Horizon.POSITION,
+                  Horizon.LONG_TERM],
+        licence="MIT", installed=False, verified=True, wired=True,
+        india_ready=True,
+        note="Imported, never installed - 16 of 20 modules run on the desk's "
+             "own numpy/pandas. PSR/DSR/MinTRL are WIRED via desk.robustness; "
+             "13 indicators, FCFF DCF, 6 strategy templates, 6 YAML screens "
+             "still on the shelf.",
+        blockers=["installed=False is correct, not a gap: its own "
+                  "requirements pull FastAPI/SQLAlchemy/Redis and would "
+                  "threaten the pandas==2.3.3 pin",
+                  "4 modules need httpx/PyYAML/SQLAlchemy - none installed",
+                  "services/sector_rotation.py returns INVENTED data on "
+                  "download failure (_generate_mock_rrg) - never use",
+                  "an application, not a library: upstream may move a "
+                  "helper and break our imports without it being their bug",
+                  "pinned to a bare commit - no release tags"],
+    ),
+    FleetEntry(
         name="nautilus_trader", kind="engine", version="1.231.0",
         capabilities=[Capability.BACKTEST, Capability.EXECUTION, Capability.RISK],
         asset_classes=[AssetClass.CRYPTO, AssetClass.FX, AssetClass.EQUITY],

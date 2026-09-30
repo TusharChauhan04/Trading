@@ -49,11 +49,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from typing import TYPE_CHECKING
 
 from desk.backtest.costs import CostModel
 from desk.backtest.simulate import SimulatedTrade, simulate_trade
 from desk.contracts.enums import Regime
 from desk.scanner.stage1 import REQUIRED_BARS
+
+if TYPE_CHECKING:                        # avoids importing agents/ at module
+    from desk.robustness import RobustnessReport   # import time
 
 __all__ = ["BacktestResult", "DayResult", "run_backtest",
            "min_risk_pct_for"]
@@ -204,6 +208,30 @@ class BacktestResult:
         -0.031R of the random baseline."""
         rs = self.net_r_multiples
         return (sum(rs) / len(rs)) if rs else None
+
+    def robustness(self, *, num_trials: int,
+                   periods_per_year: int = 252) -> "RobustnessReport":
+        """How much of this result survives admitting the search.
+
+        `num_trials` is how many variants were tried before this one was
+        reported - strategies times parameter cells times regimes. There is
+        no default, because a silent default of 1 is what turns a Deflated
+        Sharpe Ratio back into an ordinary one.
+
+        Computed on `net_r_multiples`, so it judges what a trader keeps.
+
+        ONE TRADE PER ELEMENT ASSUMES TRADES DO NOT OVERLAP. The daily
+        funnel takes at most a handful of positions a day and closes them
+        on their own stops, so its trades are near enough independent. A
+        study that opens a fresh basket every few bars while holding for
+        many more must aggregate to non-overlapping cohorts first and call
+        desk.robustness.deflated_sharpe directly - passing overlapping
+        trades here inflates every statistic it returns.
+        """
+        from desk.robustness import deflated_sharpe
+
+        return deflated_sharpe(self.net_r_multiples, num_trials=num_trials,
+                               periods_per_year=periods_per_year)
 
     @property
     def total_r(self) -> float:

@@ -19,6 +19,11 @@ __pycache__/
 TradingAgents/
 agents/*/upstream/
 agents/*/.venv/
+# Quarantined clones kept for forensics, e.g. upstream.damaged-20261001.
+# The bare `upstream/` line above does NOT cover these, and a `git add -A`
+# swept 1,209 files of one into a commit before this line existed.
+agents/*/upstream.damaged-*/
+agents/*/upstream.*/
 
 # Frontend
 web/node_modules/

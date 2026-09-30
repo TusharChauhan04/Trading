@@ -1,0 +1,93 @@
+# Agent manifest - read by desk/registry/fleet.py to decide what this can do.
+# Same schema as the other fleet members.
+
+name: openterminal_ui
+kind: hybrid          # A quant/analytics LIBRARY we import from, and a
+                      # full terminal application we do not run. Only the
+                      # library half is in scope.
+version: 0.1.0        # upstream publishes no version; this is ours
+upstream:
+  repo: https://github.com/Hitheshkaranth/OpenTerminalUI
+  pinned_commit: 8c46cbc
+  branch: main                 # no release tags published
+  licence: MIT                 # no constraints on use or modification
+  install_mode: none           # NOT installed. Imported by sys.path, and
+                               # that is the whole point - see below.
+  clone: shallow               # --depth 1; 105 MB, 47 MB of it .git
+
+provides:
+  - ROBUSTNESS          # PSR / DSR / min track record length. The reason
+                        # this repo is in the fleet at all.
+  - INDICATORS          # 13 the desk lacks
+  - VALUATION           # multi-stage FCFF DCF, reverse DCF
+  - FUNDAMENTAL_SCORES  # ratios, scoring
+  - STRATEGY_TEMPLATES  # 6 declarative presets + Pine/MQL5 export
+  - SCANNER             # detectors, indicators, ranking
+  - EXECUTION_MODEL     # realistic fill modelling
+  - SENTIMENT           # news sentiment scoring
+  - SCREENS             # 6 declarative screens as YAML data
+
+# WHY NOTHING IS INSTALLED, and why that is not laziness.
+#
+# The desk's venv pins pandas==2.3.3, and every measurement in this project
+# rests on that pin holding. This repository's own requirements pull FastAPI,
+# SQLAlchemy, Redis and a web stack it needs to be an application and we do
+# not need to borrow arithmetic. So the modules that matter are loaded from
+# `upstream/` on sys.path with NOTHING installed.
+#
+# MEASURED 2026-10-02, and this is what makes the approach viable:
+#   16 of 20 target modules import and run with no install at all
+#    4 need a dependency the desk does not have:
+#        adapters/yahoo        httpx     (not needed - our own urllib
+#                                         intraday fetch already works)
+#        model_lab/montecarlo  PyYAML
+#        nlp/filing_parser     httpx
+#        core/factor_analysis  SQLAlchemy - the heaviest, and the one whose
+#                                           absence costs least
+#
+# Two of the four are wanted eventually (PyYAML for the screens, httpx for
+# filings) and both are light. Neither is installed yet, because neither is
+# needed for the next measurement and an unneeded install is an unneeded
+# risk to the pin.
+
+verified:
+  - "backend/robustness/scorecard.py: PSR 0.9157 / DSR 0.0410 on a
+     synthetic 1200-trade 1:2 book with num_trials=618. Runs standalone
+     with only numpy."
+  - "backend/services/indicators.py: adx() ran on 120 real RELIANCE.NS
+     bars, returned adx/plus_di/minus_di. list_indicators() reports 13."
+  - "backend/core/valuation.py: imports with the repo root on sys.path;
+     DcfInputs takes base_fcf, stages, terminal_growth, net_debt,
+     shares_outstanding."
+  - "backend/strategy_export/presets.py: PRESETS holds 6 templates -
+     sma_cross, ema_cross, rsi_reversion, macd_signal,
+     bollinger_breakout, donchian_breakout."
+
+risks:
+  - "NOT 19 strategy templates. An earlier count of 19 came from grepping
+     '\"id\"', which matches once per preset AND once per indicator inside
+     it. There are 6, and donchian_breakout and a Bollinger variant
+     duplicate what the desk already has - so the real gain is 4."
+  - "backend/services/sector_rotation.py contains _generate_mock_rrg() and
+     falls back to INVENTED data when its download fails, printing a
+     warning and returning it as if real. Do not use until that raises
+     instead. Found by reading the file, not by the function name."
+  - "This is an application, not a library. Module boundaries are not
+     designed for external import: 4 of 20 targets need siblings or
+     dependencies, and a future upstream commit could break any import
+     without that being a bug on their side. smoke_test.py exists to catch
+     exactly that."
+  - "agents/*/upstream/ is gitignored, so none of this is on GitHub. The
+     September OneDrive event took vibe_trading's src/factors/base.py the
+     same way. The manifest and smoke test are the recovery instructions."
+  - "No release tags, so the pin is a bare commit - same weakness as
+     vibe_trading."
+
+not_in_scope:
+  - "The web application: FastAPI backend, React frontend, Docker, OMS,
+     alerting, background services. 204 frontend components and 126 route
+     modules that we do not run."
+  - "Cross-asset: ETF, mutual funds, bonds, commodities, forex, crypto,
+     fixed income. Real, catalogued in the salvage map, off our path."
+  - "Microstructure: volume profile, footprint, order book, tape. Needs
+     tick data the desk does not have."

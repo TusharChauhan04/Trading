@@ -1,0 +1,38 @@
+# OpenTerminalUI is imported, not installed. This file records what the
+# modules we actually use need - so the next person can tell at a glance
+# what is already satisfied and what a new module would cost.
+#
+# THERE IS NO agents/openterminal_ui/.venv, and that is deliberate. The
+# upstream repo's own requirements.txt pulls FastAPI, SQLAlchemy, Redis,
+# uvicorn and a web stack it needs to be an application. We borrow
+# arithmetic from ~16 of its files; installing its world to do that would
+# put the desk's pandas==2.3.3 pin at risk for no gain.
+#
+# HOW THE MODULES ARE LOADED: by file path via importlib, with the repo
+# root on sys.path. See desk/robustness/scorecard.py for the pattern.
+
+# --- already in the desk venv; the used modules need nothing more -------
+# numpy          - robustness/scorecard (PSR, DSR, MinTRL), core/monte_carlo
+# pandas==2.3.3  - services/indicators, scanner_engine/*
+#
+# Verified 2026-10-01: 16 of 20 target modules import and run on these two
+# alone. scorecard.compute_robustness() needs numpy ONLY - no scipy, which
+# matters because scipy is NOT in this venv (pandas' spearman corr fails
+# here for that reason; rank-then-Pearson is the workaround).
+
+# --- NOT installed. Each line is a module we are choosing to do without --
+# PyYAML       -> backend/model_lab/montecarlo.py
+#                 and needed to read backend/config/screeners.yaml as YAML.
+#                 Light and wanted for Track A. Install when the screens
+#                 are actually wired, not before.
+# httpx        -> backend/adapters/yahoo.py, backend/nlp/filing_parser.py
+#                 yahoo is not needed - the desk's own urllib intraday
+#                 fetch already works and is throttled for NSE.
+# SQLAlchemy   -> backend/core/factor_analysis.py
+#                 The heaviest dependency and the one we miss least:
+#                 vibe_trading's 206 India-ready factors already cover
+#                 factor analysis, and they need no database.
+
+# Install nothing from this file without re-running smoke_test.py
+# afterwards, plus the desk's own suite. The pandas pin is load-bearing:
+# every measurement in this project was taken under it.
