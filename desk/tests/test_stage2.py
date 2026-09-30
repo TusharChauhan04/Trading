@@ -460,3 +460,26 @@ def test_flagged_only_still_defaults_true_despite_the_measurement():
     doc = run_stage2.__doc__
     assert "MEASURED 2026-09-22" in doc, "the finding must travel with the code"
     assert "NOT CHANGED HERE" in doc
+
+
+def test_the_ic_table_carries_its_rank_versus_mean_qualification():
+    """The IC table is rank evidence, and the desk harvests means.
+
+    Measured 2026-10-01 on the same sessions and universe: the rank IC is
+    -0.044 (t -2.67, significant), the calm decile's MEDIAN edge is +0.444%
+    and its MEAN edge is -0.391%, neither significant. Skew explains it -
+    calm decile -0.73, jumpy decile +0.33. Jumpy names carry the positive
+    tail that lifts the universe mean; calm names never produce it.
+
+    A long-only stop-and-target trade collects the MEAN of its R
+    distribution, because the big winners are what pay for the stop-outs.
+    So a rank signal is not convertible into money by this machinery, and
+    a reader who takes the IC table at face value will build something that
+    cannot work. The qualification has to sit with the table."""
+    import pathlib
+    src = pathlib.Path("desk/scanner/stage2.py").read_text(encoding="utf-8")
+    i = src.index("REVERSAL_FACTORS: tuple[FactorSpec, ...] = (")
+    head = src[:i]
+    assert "RANK" in head and "harvests the MEAN" in head, (
+        "the rank-vs-mean qualification must precede REVERSAL_FACTORS - "
+        "without it the IC table reads as tradeable evidence")

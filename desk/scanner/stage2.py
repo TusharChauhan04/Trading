@@ -541,6 +541,42 @@ def _apply_fundamentals(src, fundamentals, excluded, *,
 #: measures of "this went up recently" is one voice counted three times.
 #: rel_volume is kept because volume is not price and carries its own
 #: information; atr_pct_rank because it was already right.
+#: WHAT EVERY IC ABOVE IS, AND WHAT IT IS NOT. Measured 2026-10-01, and it
+#: qualifies the whole table: an information coefficient is a RANK
+#: correlation. It answers "are these names usually higher up the ordering",
+#: not "do these names beat the average return". Those come apart when the
+#: cross-section is skewed, and equity cross-sections are violently skewed.
+#:
+#: Measured on the same 121 sessions and the same 500-name liquid universe,
+#: forward 20 sessions, calmest decile against the rest:
+#:
+#:     information coefficient (rank)      -0.044   t -2.67   SIGNIFICANT
+#:     calm decile MEDIAN minus the rest   +0.444%  t +1.46   not significant
+#:     calm decile MEAN   minus the rest   -0.391%  t -1.19   not significant
+#:
+#:     skew of forward returns, calm decile   -0.73
+#:     skew of forward returns, jumpy decile  +0.33
+#:
+#: The skew is the mechanism. Jumpy names carry the positive tail - a few go
+#: up 40% in a month - and that tail is what lifts the universe MEAN. Calm
+#: names are calm; they never produce it. So calm names can sit higher in the
+#: ordering more often AND still lose to the average, and both statements are
+#: true at once.
+#:
+#: WHY THIS MATTERS HERE RATHER THAN BEING A CURIOSITY. A long-only
+#: stop-and-target trade harvests the MEAN of its R distribution: the big
+#: winners are exactly what pays for the stop-outs. This desk is long-only
+#: with stops and targets, by legal constraint on the short side. So a rank
+#: signal, however significant, is not something this machinery can convert
+#: into money - and every backtest in this project has been long-only with
+#: stops, which is a structural explanation for three years of negative
+#: results that no amount of factor-sign correction would change.
+#:
+#: CONSEQUENCE FOR THE SET BELOW. REVERSAL_FACTORS was built on the IC table
+#: and is therefore built on rank evidence. It is still worth backtesting -
+#: the prediction that it fails for this structural reason is exactly the
+#: kind of prediction that should be checked rather than assumed - but a
+#: positive IC is now known to be weaker grounds than it looked.
 REVERSAL_FACTORS: tuple[FactorSpec, ...] = (
     FactorSpec(
         "reversal", "ret_5d_pct", -1, 1.0,
