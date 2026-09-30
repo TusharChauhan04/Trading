@@ -53,8 +53,8 @@ from pathlib import Path
 from desk.llm.base import BudgetExceeded, Usage
 
 __all__ = [
-    "DEFAULT_MONTHLY_CEILING_INR", "DEFAULT_USD_INR", "CostMeter",
-    "ModelPrice", "PRICES", "price_for",
+    "DEFAULT_MONTHLY_CEILING_INR", "DEFAULT_USD_INR", "LOCAL_PREFIX",
+    "CostMeter", "ModelPrice", "PRICES", "ZERO_PRICE", "price_for",
 ]
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -94,13 +94,38 @@ PRICES: dict[str, ModelPrice] = {
 }
 
 
+#: Stamped by `desk.llm.providers.local.LocalProvider` onto every model name
+#: it reports, so that a locally served model is recognisable to the meter by
+#: its ROUTE rather than by its name. The server chooses its own model id
+#: (`google/gemma-3-4b`, say) and we cannot enumerate those in advance, which
+#: is what makes name-based pricing unworkable for local models.
+LOCAL_PREFIX = "local:"
+
+ZERO_PRICE = ModelPrice(Decimal("0"), Decimal("0"))
+
+
 def price_for(model: str) -> ModelPrice:
     """The price, or an exception. Never a default.
 
     An unknown model is a refusal rather than a zero: treating an unpriced
     model as free is how a ledger comes to under-report a month by an order
     of magnitude, and the failure is silent until the invoice arrives.
+
+    THE ONE EXEMPTION, and why it is not the hole it looks like. A name
+    carrying `LOCAL_PREFIX` prices at zero, because it costs zero - the call
+    is a POST to a base_url on the operator's own machine and no money can
+    change hands on it. The prefix is not user input and not read from a
+    model name off the wire: `LocalProvider` stamps it, and `LocalProvider`
+    sends no API key, so a misconfiguration pointed at a paid endpoint gets
+    401 rather than a silent bill. Everything without the prefix still has to
+    be in PRICES or it will not be called.
+
+    The zero is still RECORDED. A local call appends to the ledger like any
+    other, at Rs 0, so "how many times did Stage 3 run" stays answerable -
+    which is the question the ledger exists for, separately from spend.
     """
+    if model.startswith(LOCAL_PREFIX):
+        return ZERO_PRICE
     try:
         return PRICES[model]
     except KeyError:

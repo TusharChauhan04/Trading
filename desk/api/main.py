@@ -39,8 +39,10 @@ from desk.settings import Settings, configure_logging
 from desk.risk.engine import Portfolio, Position, RiskConfig, Sizing, size_position
 from desk.scanner.stage0 import run_stage0
 from desk.scanner.stage1 import REQUIRED_BARS, Stage1Result, run_stage1
+from desk.llm.base import LLMProvider
 from desk.llm.budget import CostMeter
 from desk.llm.client import MeteredClient
+from desk.llm.providers.local import LocalProvider
 from desk.llm.providers.openai import OpenAIProvider
 from desk.regime.engine import compute_regime
 from desk.research.events import load_calendar
@@ -573,7 +575,19 @@ def _llm_client():
     is what someone actually does when they first paste a key in.
     """
     cfg = Settings.from_env()
-    provider = OpenAIProvider(model=cfg.llm_model, api_key=cfg.openai_api_key)
+    provider: LLMProvider
+    if cfg.llm_base_url:
+        # A configured local server wins over a key on disk. The key is
+        # usually left over rather than a preference, and quietly billing
+        # someone who has just pointed the desk at their own machine would
+        # be the wrong way round. Costs nothing, so the ceiling is moot -
+        # but the ledger still records every call at Rs 0, which is how
+        # "did Stage 3 run today" stays answerable.
+        provider = LocalProvider(model=cfg.llm_model,
+                                 base_url=cfg.llm_base_url)
+    else:
+        provider = OpenAIProvider(model=cfg.llm_model,
+                                  api_key=cfg.openai_api_key)
     if not provider.configured:
         return None
     return MeteredClient(

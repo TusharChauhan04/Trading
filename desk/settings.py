@@ -97,6 +97,18 @@ class Settings:
     openai_api_key: str | None = None
     llm_monthly_ceiling_inr: Decimal = Decimal("500.00")
     llm_model: str = "gpt-4o-mini"
+    llm_base_url: str | None = None
+    """Point Stage 3 at a LOCAL OpenAI-compatible server instead of OpenAI.
+
+    None = use OpenAI, which needs a key and costs money. Set it to
+    `http://localhost:1234/v1` (LM Studio; Ollama is 11434, llama.cpp 8080)
+    and Stage 3 runs on your own machine for free, with no key required and
+    no data leaving the laptop.
+
+    SETTING THIS WINS OVER OPENAI even when a key is present, because a key
+    on disk is usually left over rather than a preference, and silently
+    billing someone who has just configured a local server would be the
+    wrong way round. `describe()` says which route is live."""
     usd_inr: Decimal = Decimal("90.00")
     default_capital: float = DEFAULT_CAPITAL
     risk_reward: float = DEFAULT_RISK_REWARD
@@ -126,6 +138,7 @@ class Settings:
             llm_monthly_ceiling_inr=_decimal("DESK_LLM_MONTHLY_CEILING_INR",
                                              Decimal("500.00")),
             llm_model=os.environ.get("DESK_LLM_MODEL") or "gpt-4o-mini",
+            llm_base_url=os.environ.get("DESK_LLM_BASE_URL") or None,
             usd_inr=_decimal("DESK_USD_INR", Decimal("90.00")),
             default_capital=_float("DESK_DEFAULT_CAPITAL", DEFAULT_CAPITAL),
             risk_reward=_float("DESK_RISK_REWARD", DEFAULT_RISK_REWARD),
@@ -136,13 +149,31 @@ class Settings:
         )
 
     @property
+    def llm_local(self) -> bool:
+        """Whether Stage 3 goes to a local server rather than to OpenAI."""
+        return bool(self.llm_base_url)
+
+    @property
     def llm_configured(self) -> bool:
-        return bool(self.openai_api_key)
+        """Whether Stage 3 can run at all.
+
+        A local base URL counts, and needs no key: that is the whole point of
+        it. This is what `/plan/today` consults to decide between running
+        Stage 3 and reporting it as a check that did not run.
+        """
+        return bool(self.openai_api_key) or self.llm_local
 
     def describe(self) -> list[str]:
         """What is configured. NEVER what it is set to."""
+        route = (f"LOCAL at {self.llm_base_url} - free, no key needed"
+                 if self.llm_local else
+                 ("OpenAI" if self.openai_api_key
+                  else "NONE - Stage 3 will not run"))
         return [
-            f"OPENAI_API_KEY            {'set' if self.llm_configured else 'NOT SET - Stage 3 will not run'}",
+            f"Stage 3 route             {route}",
+            f"OPENAI_API_KEY            {'set' if self.openai_api_key else 'not set'}"
+            + ("  (ignored - DESK_LLM_BASE_URL takes precedence)"
+               if self.llm_local and self.openai_api_key else ""),
             f"DESK_LLM_MODEL            {self.llm_model}",
             f"DESK_LLM_MONTHLY_CEILING  Rs {self.llm_monthly_ceiling_inr}",
             f"DESK_USD_INR              {self.usd_inr}",

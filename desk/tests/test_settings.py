@@ -175,10 +175,32 @@ def test_describe_never_reveals_the_key(monkeypatch):
     assert "set" in lines
 
 
-def test_describe_says_when_stage_three_cannot_run():
-    lines = "\n".join(Settings.from_env(env_file=None).describe())
-    assert "NOT SET" in lines
+def test_describe_says_when_stage_three_cannot_run(monkeypatch):
+    """No key and no local server - describe() must say so plainly.
+
+    Both variables are cleared explicitly. `env_file=None` stops .env being
+    read but the real process environment still leaks in, so without this the
+    test passes or fails depending on whose machine it runs on - the same
+    hidden-dependency bug that made the calendar test look like a code
+    regression when it was the wall clock.
+    """
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("DESK_LLM_BASE_URL", raising=False)
+    cfg = Settings.from_env(env_file=None)
+    assert not cfg.llm_configured
+    lines = "\n".join(cfg.describe())
     assert "Stage 3 will not run" in lines
+
+
+def test_describe_names_the_local_route_when_one_is_set(monkeypatch):
+    """The free route must be visible, since it changes what a call costs."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("DESK_LLM_BASE_URL", "http://localhost:1234/v1")
+    cfg = Settings.from_env(env_file=None)
+    lines = "\n".join(cfg.describe())
+    assert cfg.llm_configured, "a local server needs no key"
+    assert "LOCAL" in lines and "localhost:1234" in lines
+    assert "Stage 3 will not run" not in lines
 
 
 def test_the_repr_does_not_leak_either(monkeypatch):
