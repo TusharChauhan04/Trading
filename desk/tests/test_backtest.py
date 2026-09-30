@@ -42,11 +42,11 @@ def _bars(rows):
 
 
 def _run(rows, *, entry=200.0, stop=180.0, target=250.0, qty=10, horizon=5,
-         min_risk_pct=None):
+         min_risk_pct=None, exit_levels=None):
     return simulate_trade(_bars(rows), symbol="X.NS", decided_on=DECIDED,
                           planned_entry=entry, stop=stop, target=target,
                           qty=qty, horizon_days=horizon,
-                          min_risk_pct=min_risk_pct)
+                          min_risk_pct=min_risk_pct, exit_levels=exit_levels)
 
 
 # --- the ambiguity, which is the whole point -----------------------------
@@ -479,3 +479,75 @@ def test_the_floor_is_opt_in_so_no_existing_caller_changes_behaviour():
              ("2026-09-18", 180.90, 186, 180.5, 185)]
     assert _run(tight).trade is not None, "unchanged without the floor"
     assert _run(tight, min_risk_pct=0.6).trade is None
+
+
+# ===========================================================================
+# the strategy's own exit - measuring a rule without it measures a
+# different rule
+# ===========================================================================
+
+def _levels(pairs):
+    """A date -> exit-level series, the shape walkforward builds."""
+    import pandas as pd
+    return pd.Series({_d(d): v for d, v in pairs})
+
+
+def _d(s: str):
+    from datetime import date as _date
+    y, m, dd = (int(x) for x in s.split("-"))
+    return _date(y, m, dd)
+
+
+def test_a_close_below_the_exit_level_leaves_at_that_close():
+    """donchian's thesis is "new highs beget new highs; CUT THE ONES THAT
+    FAIL IMMEDIATELY". The cutting is half the claim, so a harness that
+    exits only on stop or horizon reports a lower bound while looking like
+    a verdict."""
+    sim = _run([("2026-09-17", 200, 201, 199, 200),
+                ("2026-09-18", 200, 206, 198, 205),
+                ("2026-09-21", 205, 206, 195, 196)],
+               exit_levels=_levels([("2026-09-18", 190.0),
+                                    ("2026-09-21", 197.0)]))
+    assert sim.trade.exit_reason == ExitReason.STRATEGY
+    assert sim.trade.exit_price == 196.0, "leaves at the close, not the level"
+    assert sim.trade.bars_held == 2
+
+
+def test_the_intrabar_stop_beats_the_exit_signal_on_the_same_bar():
+    """Ordering is the correctness here. Stop and target are touched DURING
+    the session; the exit signal is a CLOSE. Checking the close first would
+    let a trade escape through its channel on a bar whose stop had already
+    been hit hours earlier - a free pass on the worst days."""
+    sim = _run([("2026-09-17", 200, 201, 199, 200),
+                ("2026-09-18", 200, 202, 175, 196)],   # low 175 breaks the 180 stop
+               exit_levels=_levels([("2026-09-18", 197.0)]))
+    assert sim.trade.exit_reason == ExitReason.STOP
+    assert sim.trade.exit_price == 180.0
+
+
+def test_a_missing_or_nan_level_is_no_signal_rather_than_a_breach():
+    """The channel needs more history than the window always has. Absence
+    of a level means the rule could not form an opinion on that bar, which
+    is not the same as the rule saying get out."""
+    import numpy as np
+    sim = _run([("2026-09-17", 200, 201, 199, 200),
+                ("2026-09-18", 200, 206, 198, 205),
+                ("2026-09-21", 205, 207, 203, 204)],
+               exit_levels=_levels([("2026-09-18", np.nan)]))
+    assert sim.trade.exit_reason == ExitReason.TIME, sim.trade.exit_reason
+
+
+def test_exit_levels_is_opt_in_and_changes_nothing_when_absent():
+    rows = [("2026-09-17", 200, 201, 199, 200),
+            ("2026-09-18", 200, 206, 198, 196)]
+    assert _run(rows).trade.exit_reason == ExitReason.TIME
+    assert _run(rows, exit_levels=_levels([("2026-09-18", 197.0)])
+                ).trade.exit_reason == ExitReason.STRATEGY
+
+
+def test_the_journal_accepts_the_new_reason():
+    """ExitReason.ALL gates what the journal will record. A reason the
+    simulator can emit and the journal refuses would fail only when a
+    backtest tried to write its outcomes - long after the change."""
+    from desk.journal.models import ExitReason as JR
+    assert JR.STRATEGY in JR.ALL

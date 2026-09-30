@@ -188,3 +188,43 @@ def test_nothing_in_this_module_can_change_a_maturity():
     src = open(wfmod.__file__, encoding="utf-8").read()
     assert "maturity =" not in src
     assert "Maturity." not in src
+
+
+# ===========================================================================
+# an exit rule that never fires must not read as one that ran
+# ===========================================================================
+
+def test_a_window_counts_the_strategy_exits_that_actually_fired():
+    """"Simulated" and "fired" are different facts, and the gap between
+    them is where a rule gets credit for machinery that never ran."""
+    from desk.backtest.simulate import SimulatedTrade
+    w = _window([-1.0, 1.0])
+    w.result.trades.append(
+        SimulatedTrade(symbol="Y.NS", entry_date=D0, entry_price=100.0,
+                       planned_entry=100.0, exit_date=D0 + timedelta(days=3),
+                       exit_price=98.0, exit_reason="strategy_exit", qty=10,
+                       bars_held=3, stop=95.0, target=110.0))
+    assert w.strategy_exits == 1
+    assert w.trades == 3
+
+
+def test_donchians_catalogued_exit_cannot_reach_its_catalogued_stop():
+    """MEASURED, and it is a defect in the SPEC rather than in the harness.
+
+    donchian_breakout pairs atr_stop_mult 2.0 with exit_lookback 10. The
+    entry is a 20-session HIGH breakout, so the 10-session low sits far
+    below - on 57 of 57 real setups the ATR stop was ABOVE the channel,
+    median 16.77% of entry price above it. Price must cross the stop
+    before it can close under the channel, so the channel exit is
+    unreachable as specified and simulating it changes nothing.
+
+    That matters for how the walk-forward result is read: -0.2372R was
+    described as a lower bound pending this exit. It is not a lower bound.
+    The exit half of the rule cannot happen at the catalogued stop.
+    """
+    spec = BY_KEY["donchian_breakout"]
+    assert spec.params["atr_stop_mult"] == 2.0
+    assert spec.params["exit_lookback"] == 10
+    assert spec.params["entry_lookback"] == 20, (
+        "the entry being a 20-session high is why the 10-session low is so "
+        "far below - if this changes, re-measure before trusting the note")

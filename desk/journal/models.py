@@ -66,7 +66,17 @@ class ExitReason:
     system, and silently dropping those makes the journal describe a desk
     that does not exist."""
 
-    ALL = (TARGET, STOP, TIME, DISCRETION, NOT_TAKEN)
+    STRATEGY = "strategy_exit"
+    """The RULE said get out, before the stop or the horizon did.
+
+    Distinct from STOP on purpose. A stop is where the trade was proven
+    wrong on price; a strategy exit is the rule's own signal - Donchian
+    leaving on a close below its exit channel, say - and a system that
+    logs both as "stop" cannot tell a rule that cuts losses early from one
+    that keeps getting stopped out.
+    """
+
+    ALL = (TARGET, STOP, TIME, DISCRETION, NOT_TAKEN, STRATEGY)
 
 
 @dataclass(frozen=True, slots=True)

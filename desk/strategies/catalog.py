@@ -141,10 +141,7 @@ CATALOG: list[StrategySpec] = [
               "(-0.243, -0.251, -0.187, -0.267). The consistency is the "
               "point - four windows inside a 0.08R band is not a "
               "sample-size problem, it is a stable negative edge. "
-              "Caveat: the channel EXIT is not simulated, so this "
-              "measures the setup and is a lower bound on a rule whose "
-              "stated edge includes cutting failures early. Testing that "
-              "exit is the one thing owed before retiring this rule.",
+              "RESOLVED 2026-09-30: the channel exit was simulated and fired ZERO times. atr_stop_mult 2.0 puts the stop ABOVE the 10-session channel on 57 of 57 real setups, median 16.77% of entry price above it - the entry IS a 20-session high, so the 10-session low is far below. Price must cross the stop before it can close under the channel, so THE CATALOGUED EXIT IS UNREACHABLE AT THE CATALOGUED STOP. -0.2372R is therefore the complete rule, not a lower bound. The two parameters are incompatible as written."
     ),
     StrategySpec(
         key="pairs_trading",

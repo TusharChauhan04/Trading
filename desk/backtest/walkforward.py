@@ -81,6 +81,21 @@ class WindowResult:
         return len(self.result.trades)
 
     @property
+    def strategy_exits(self) -> int:
+        """How many trades left on the STRATEGY'S OWN signal.
+
+        Reported because "simulated" and "actually fired" are different
+        facts, and the gap between them is where a rule gets credit for
+        machinery that never ran. Measured on donchian_breakout: zero, on
+        every trade, because its catalogued 2.0x ATR stop sits ABOVE its
+        10-session channel on 100% of setups (median 16.77% of entry
+        price above it). Price has to cross the stop before it can close
+        under the channel, so the exit is unreachable as specified.
+        """
+        return sum(1 for x in self.result.trades
+                   if x.exit_reason == "strategy_exit")
+
+    @property
     def net_r(self) -> float | None:
         return self.result.expectancy_r_net
 
@@ -114,6 +129,10 @@ class WalkForwardResult:
     @property
     def total_trades(self) -> int:
         return sum(w.trades for w in self.windows)
+
+    @property
+    def total_strategy_exits(self) -> int:
+        return sum(w.strategy_exits for w in self.windows)
 
     @property
     def pooled_net_r(self) -> float | None:
@@ -172,7 +191,7 @@ class WalkForwardResult:
     def report(self) -> str:
         lines = [f"Walk-forward: {self.key}  ({BY_KEY[self.key].name})",
                  f"  {'window':<26}{'sess':>6}{'trades':>8}"
-                 f"{'net R':>10}{'median':>10}{'win%':>8}"]
+                 f"{'net R':>10}{'median':>10}{'win%':>8}{'sExit':>7}"]
         for w in self.windows:
             nr = f"{w.net_r:+.4f}" if w.net_r is not None else "     -"
             md = f"{w.median_net_r:+.4f}" if w.median_net_r is not None else "     -"
@@ -180,7 +199,8 @@ class WalkForwardResult:
                   if w.result.r_multiples else "   -")
             lines.append(
                 f"  {str(w.start) + ' - ' + str(w.end):<26}"
-                f"{w.sessions_eligible:>6}{w.trades:>8}{nr:>10}{md:>10}{wr:>8}")
+                f"{w.sessions_eligible:>6}{w.trades:>8}{nr:>10}{md:>10}"
+                f"{wr:>8}{w.strategy_exits:>7}")
         p, m = self.pooled_net_r, self.pooled_median_net_r
         lines.append(f"  {'POOLED':<26}{'':>6}{self.total_trades:>8}"
                      f"{(f'{p:+.4f}' if p is not None else '-'):>10}"
@@ -197,6 +217,7 @@ def run_strategy_backtest(store, key: str, *, start: date, end: date,
                           costs: CostModel | None = None,
                           enforce_regime: bool = True,
                           cfg: RiskConfig | None = None,
+                          use_strategy_exit: bool = False,
                           progress=None) -> tuple[BacktestResult, int, int]:
     """Replay ONE catalogued strategy over [start, end].
 
@@ -227,6 +248,23 @@ def run_strategy_backtest(store, key: str, *, start: date, end: date,
                                columns=list(REQUIRED_BARS))
     sectors = SectorMap.load(store.root.parent / "sectors.json") \
         if (store.root.parent / "sectors.json").is_file() else None
+
+    # THE STRATEGY'S OWN EXIT, built once for every symbol at once rather
+    # than per trade. donchian_breakout leaves on a close below the lowest
+    # low of the previous `exit_lookback` sessions, so the level is
+    # low.shift(1).rolling(k).min() - shifted first, for the same reason
+    # the entry channel is: a window containing the current bar includes
+    # that bar's own low, and the rule would fire on a level it helped set.
+    #
+    # Reading the forward frame here is legitimate for the same reason
+    # simulate.py may: the decision is already fixed before this is touched.
+    exit_matrix = None
+    if use_strategy_exit:
+        k = spec.params.get("exit_lookback")
+        if k is not None:
+            lows = forward.wide("low")
+            exit_matrix = lows.shift(1).rolling(int(k),
+                                                min_periods=int(k)).min()
 
     floor_pct = min_risk_pct_for(result.costs, risk)
     eligible_days = silenced_days = 0
@@ -284,11 +322,15 @@ def run_strategy_backtest(store, key: str, *, start: date, end: date,
                 result.not_taken[why] = result.not_taken.get(why, 0) + 1
                 continue
             bars = forward.series(idea.symbol)
+            levels = None
+            if exit_matrix is not None and idea.symbol in exit_matrix.columns:
+                levels = exit_matrix[idea.symbol]
             sim = simulate_trade(bars, symbol=idea.symbol, decided_on=day,
                                  planned_entry=sized.entry, stop=sized.stop,
                                  target=sized.target, qty=sized.qty,
                                  horizon_days=holding_days,
-                                 min_risk_pct=floor_pct)
+                                 min_risk_pct=floor_pct,
+                                 exit_levels=levels)
             if sim.trade is None:
                 why = sim.reason_not_taken or "unknown"
                 result.not_taken[why] = result.not_taken.get(why, 0) + 1
@@ -326,10 +368,33 @@ def walk_forward(store, key: str, *, start: date, end: date, windows: int = 4,
                                         sessions_silenced=sil))
 
     spec = BY_KEY[key]
-    out.caveats.append(
-        "the strategy's own exit is NOT simulated - every trade exits on "
-        "the proposal's stop, target or the horizon, so this measures the "
-        "SETUP rather than the complete rule")
+    if kwargs.get("use_strategy_exit") and spec.params.get("exit_lookback"):
+        fired = out.total_strategy_exits
+        if fired:
+            out.caveats.append(
+                f"the strategy's own exit IS simulated "
+                f"({int(spec.params['exit_lookback'])}-session channel) and "
+                f"fired on {fired} of {out.total_trades} trades, so this "
+                f"measures the complete rule rather than the setup alone")
+        else:
+            # The case that would otherwise read as "the complete rule was
+            # measured" while the exit never ran. It is not a harness fault:
+            # the two catalogued parameters are incompatible.
+            out.caveats.append(
+                f"the strategy's own exit was simulated and fired ZERO "
+                f"times in {out.total_trades} trades - its "
+                f"{int(spec.params['exit_lookback'])}-session channel sits "
+                f"BELOW the catalogued "
+                f"{spec.params.get('atr_stop_mult')}x ATR stop on every "
+                f"setup, so price must cross the stop before it can close "
+                f"under the channel. The exit is unreachable as specified, "
+                f"and the result is the complete rule only because the "
+                f"exit half of it can never happen")
+    else:
+        out.caveats.append(
+            "the strategy's own exit is NOT simulated - every trade exits on "
+            "the proposal's stop, target or the horizon, so this measures the "
+            "SETUP rather than the complete rule")
     if spec.defects:
         out.caveats.append(
             f"{len(spec.defects)} catalogued defect(s) still stand: "

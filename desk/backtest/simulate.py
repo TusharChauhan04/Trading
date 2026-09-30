@@ -124,7 +124,8 @@ def simulate_trade(bars: pd.DataFrame, *, symbol: str, decided_on: date,
                    planned_entry: float | None, stop: float,
                    target: float | None, qty: int,
                    horizon_days: int = 5,
-                   min_risk_pct: float | None = None) -> ExitSimulation:
+                   min_risk_pct: float | None = None,
+                   exit_levels: "pd.Series | None" = None) -> ExitSimulation:
     """Enter on the session after `decided_on`; walk forward to an exit.
 
     `bars` is one symbol's daily OHLC indexed by date, and it MUST NOT be
@@ -159,6 +160,23 @@ def simulate_trade(bars: pd.DataFrame, *, symbol: str, decided_on: date,
     nothing. This re-applies the engine's own rule at the only moment the
     realised number is known. See `min_risk_pct_for` in
     desk.backtest.engine for the derivation.
+
+    `exit_levels` is THE STRATEGY'S OWN EXIT, indexed by date: the trade
+    leaves at the close of any held session whose close falls below that
+    session's level. Default None, so a caller that does not pass one gets
+    the stop/target/horizon behaviour unchanged.
+
+    It exists because measuring a rule without its exit measures something
+    the rule is not. donchian_breakout's thesis is "new highs beget new
+    highs; CUT THE ONES THAT FAIL IMMEDIATELY" - the cutting is half the
+    claim, and a walk-forward that exits only on stop or horizon reports a
+    lower bound while looking like a verdict.
+
+    Evaluated AFTER the intrabar stop and target on the same bar, which is
+    the honest ordering: stop and target are touched during the session and
+    the exit signal is a CLOSE. Checking the close first would let a trade
+    escape through its exit channel on a bar that had already hit the stop
+    hours earlier.
     """
     if qty <= 0:
         return ExitSimulation(None, "quantity was zero")
@@ -270,6 +288,19 @@ def simulate_trade(bars: pd.DataFrame, *, symbol: str, decided_on: date,
         if hit_target:
             return _exit(symbol, idx[first], entry_price, planned_entry, day,
                          target, ExitReason.TARGET, qty, n, stop, target)
+
+        # 2b. THE STRATEGY'S OWN EXIT, on the close, after the intrabar
+        #     levels have had their say. A missing or NaN level means the
+        #     rule could not form a signal for this bar - the channel needs
+        #     more history than exists here - and that is left as "no exit
+        #     signal" rather than treated as a breach.
+        if exit_levels is not None:
+            lvl = exit_levels.get(day)
+            close = float(row["close"])
+            if lvl is not None and not pd.isna(lvl) and close < float(lvl):
+                return _exit(symbol, idx[first], entry_price, planned_entry,
+                             day, close, ExitReason.STRATEGY, qty, n,
+                             stop, target)
 
     # 3. Neither level reached inside the horizon: out at the last close.
     return _exit(symbol, idx[first], entry_price, planned_entry, idx[last_i],
