@@ -40,6 +40,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
+from desk.indicators.directional import adx_wide
 from desk.marketdata.corporate_actions import CorporateAction
 from desk.store import Coverage, History
 
@@ -80,6 +81,7 @@ FEATURE_COLUMNS = (
     "ret_1d_pct", "ret_5d_pct", "ret_20d_pct",
     "rel_volume", "gap_pct",
     "atr_pct", "atr_pct_rank",
+    "adx_14", "plus_di_14", "minus_di_14",
     "dist_sma20_pct", "dist_sma50_pct", "dist_sma200_pct",
     "pos_52w_pct", "high_52w", "low_52w",
     "swing_low", "swing_low_age", "low_20",
@@ -289,6 +291,37 @@ def run_stage1(
         atr_pct = None
         out["atr_pct"] = np.nan
         out["atr_pct_rank"] = np.nan
+
+    # --- trend STRENGTH, which is not trend direction -----------------------
+    # ADX says how hard price is trending; it says nothing about which way, so
+    # a hard down-trend prints the same high reading as a hard up-trend. The
+    # direction lives in +DI vs -DI, which is why all three are exported
+    # together - a gate written on adx_14 alone would admit both sides of the
+    # market while looking like it selected one.
+    #
+    # supertrend_adx is the last unbuilt adapter in the catalog and the one it
+    # calls the most defensible of the six; ADX was the missing piece.
+    #
+    # MEASURED TRAP, 2026-09-29, 995 names: the six HIGHEST adx_14 readings in
+    # the whole universe were money-market ETFs - LIQUIDCASE.NS at 100.0 with
+    # atr_pct 0.029%, against a universe median of 3.36%. ADX is a ratio and
+    # does not care how big the move was, only how consistent, so a paisa-a-day
+    # grinder is a perfect trend. Twelve names of 995 fell under a 1% ATR floor
+    # and those twelve held the entire top of the ranking.
+    # => ANY screen on adx_14 must also floor atr_pct, or it selects liquid
+    #    ETFs while appearing to select trends. See adx_wide's docstring.
+    if high is not None and low is not None:
+        di = adx_wide(high, low, close, period=14)
+        out["adx_14"] = _finite(di["adx"].iloc[-1])
+        out["plus_di_14"] = _finite(di["plus_di"].iloc[-1])
+        out["minus_di_14"] = _finite(di["minus_di"].iloc[-1])
+    else:
+        # No high/low means no true range and no directional movement. NaN
+        # rather than 0.0: a name whose ADX could not be computed must not
+        # read as a name with no trend.
+        out["adx_14"] = np.nan
+        out["plus_di_14"] = np.nan
+        out["minus_di_14"] = np.nan
 
     # --- trend -------------------------------------------------------------
     sma20 = close.rolling(20).mean()
