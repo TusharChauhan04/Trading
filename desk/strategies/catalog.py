@@ -112,10 +112,27 @@ CATALOG: list[StrategySpec] = [
               "worsening. Median net R is -1.08, so the majority outcome "
               "is a full stop plus costs - the win rate of 28-41% counts "
               "any positive R, most of which are small time exits, not "
-              "targets. Caveat that is MINE not the catalog's: the spec "
-              "names no stop, so the adapter derives one at mid - 3 sigma. That leaves only 1 sigma of room below a 2-sigma entry, and the stop "
-              "being hit is what kills it. A wider stop is the first "
-              "thing to retest before concluding the RULE fails.",
+              "targets. THE STOP CAVEAT WAS MINE AND IT WAS JUSTIFIED: "
+              "the spec names no stop, so the adapter derives one at "
+              "mid - 3 sigma, leaving a 2-sigma entry only 1 sigma of "
+              "room in a name selected FOR being volatile. Tested "
+              "2026-09-30 against a variant at mid - 4 sigma targeting "
+              "the UPPER band - the only wider stop that clears the "
+              "engine 1.5 R:R floor, since mid - 3.5 sigma with a mid "
+              "target falls to 1.33 and every trade is refused. "
+              "Identical populations, only the two levels differ. Pooled "
+              "net R improved -0.2760 to -0.1744 and the MEDIAN improved "
+              "-1.08 to -0.22, in ALL FOUR windows: under the production "
+              "stop the typical trade is a full stop-out, under the wider "
+              "one it is a small loss. NOT ADOPTED, and not because the "
+              "numbers are weak - the variant targets the upper band, and "
+              "this thesis is that stretched price snaps back to the "
+              "MEAN. A target beyond the mean is a different claim, so "
+              "shipping it here would quietly redefine the catalogued "
+              "strategy; it belongs as its own entry if ever wanted. "
+              "Either way the rule loses money in every window, so the "
+              "caveat is discharged: -0.17R is the best version of this "
+              "rule measured, and it is still negative.",
     ),
     StrategySpec(
         key="donchian_breakout",
