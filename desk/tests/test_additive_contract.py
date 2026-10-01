@@ -55,7 +55,7 @@ BASELINE_FUNDAMENTALS = (
 ADDED_FEATURES = ("adx_14", "plus_di_14", "minus_di_14")
 ADDED_FUNDAMENTALS = ("shares_outstanding", "ebit", "ebitda",
                       "effective_tax_rate_pct", "nopat", "op_margin_pct",
-                      "interest_cover")
+                      "interest_cover", "industry")
 
 
 def test_no_stage1_feature_column_was_removed() -> None:

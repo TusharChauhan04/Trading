@@ -131,6 +131,27 @@ def _calendar() -> TradingCalendar:
     return _calendar_cached(mtime)
 
 
+def _sector_map() -> SectorMap | None:
+    """The industry classification, or None when the file is absent.
+
+    None rather than an empty map, so a caller can tell "no classification
+    available" from "classified as nothing" - the fundamentals table writes
+    `industry` as None in that case and never guesses.
+
+    Needed because `interest_cover` is MEANINGLESS FOR LENDERS: interest is an
+    NBFC's cost of goods, so PFC and RECLTD sort at 1.6x next to Vodafone Idea
+    while being entirely healthy. Coverage measured at 186/186 on the filing
+    universe across 20 industries, 40 of them Financial Services.
+    """
+    try:
+        return SectorMap.load(CONFIGS / "sectors.json")
+    except Exception:                                   # noqa: BLE001
+        # A malformed or missing sector file must not 503 a scan that is
+        # otherwise computable - the same degraded-but-honest rule the
+        # calendar follows below.
+        return None
+
+
 def _calendar_or_none() -> TradingCalendar | None:
     """For callers where the calendar improves the answer but is not required.
 
@@ -1053,7 +1074,8 @@ def research_valuation(
     # already computes. The ONE of OpenTerminalUI's six fundamental scores our
     # data supports - the other five need a balance sheet, and BLOCKED_SCORES
     # records exactly what each would need.
-    fund, _fcov = build_table(store_f, symbols, as_of=target)
+    fund, _fcov = build_table(store_f, symbols, as_of=target,
+                              sectors=_sector_map())
     growth = fund["profit_growth_yoy_pct"] if "profit_growth_yoy_pct"         in fund.columns else None
     table["peg_ttm"] = [
         peg_ratio(table.at[s, "pe_ttm"],
@@ -1110,7 +1132,8 @@ def research_screens(day: date | None = None) -> dict:
         out["caveat"] = ("no filings on disk - run 'python -m "
                          "desk.marketdata.refresh fundamentals'")
         return out
-    table, coverage = build_table(store, symbols, as_of=target)
+    table, coverage = build_table(store, symbols, as_of=target,
+                                  sectors=_sector_map())
     out["coverage"] = coverage
     for name, screen in SCREENS.items():
         if not screen.runnable:

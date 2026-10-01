@@ -157,9 +157,22 @@ class DerivedFundamentals:
         TCS     72.2x        debt-free
 
     PFC and RECLTD sort next to Vodafone Idea on this column while being
-    nothing like it. A screen that filters on interest_cover must exclude
-    financials first, and the desk has no sector classification wired yet -
-    so until it does, this column ranks two different things at once."""
+    nothing like it. A screen that filters on interest_cover MUST exclude
+    financials first.
+
+    CORRECTION: an earlier version of this docstring said "the desk has no
+    sector classification wired yet". That was WRONG, and a documented
+    non-limitation is worse than none - it tells a reader to avoid a column
+    that is usable with one extra step. `configs/sectors.json` carries an
+    `industry` map and `desk.marketdata.sectors.SectorMap.sector_for()` reads
+    it; coverage on the 186 filing symbols is 186/186 across 20 industries, of
+    which 40 are Financial Services.
+
+    Measured: excluding them changes the bottom of the ranking from
+    TATAINVEST (-93.67x) and PAYTM (-46.28x), both financials, to SWIGGY,
+    IDEA, GMRAIRPORT, PRESTIGE and JSWENERGY - genuinely leveraged or
+    loss-making operating businesses. The `industry` column on the
+    fundamentals table exists so that filter is one comparison away."""
 
     @property
     def derivable(self) -> tuple[str, ...]:

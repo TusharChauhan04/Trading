@@ -72,6 +72,13 @@ COLUMNS = (
     # NSE's quarterly results XBRL at all).
     "shares_outstanding", "ebit", "ebitda", "effective_tax_rate_pct",
     "nopat", "op_margin_pct", "interest_cover",
+    # From configs/sectors.json via SectorMap, 186/186 coverage across 20
+    # industries. Here because interest_cover is MEANINGLESS FOR LENDERS -
+    # interest is an NBFC's cost of goods, so PFC and RECLTD sort at 1.6x
+    # beside Vodafone Idea while being entirely healthy. A screen on that
+    # column must exclude financials, and this makes it one comparison away.
+    # None when no sector map was passed: never guessed.
+    "industry",
 )
 
 #: How far either side of "one year ago" a filing may sit and still count as
@@ -123,8 +130,8 @@ def latest_comparable(recs: list[StoredFiling]
     return None, None, "none"
 
 
-def build_table(store: FilingStore, symbols, *, as_of: datetime | date
-                ) -> tuple[pd.DataFrame, dict[str, int]]:
+def build_table(store: FilingStore, symbols, *, as_of: datetime | date,
+                sectors=None) -> tuple[pd.DataFrame, dict[str, int]]:
     """One row per symbol with fundamentals known at `as_of`.
 
     Returns (frame, coverage). `coverage` counts why symbols are missing,
@@ -199,6 +206,11 @@ def build_table(store: FilingStore, symbols, *, as_of: datetime | date
                    depreciation=current.depreciation,
                    tax_expense=current.tax_expense,
                    revenue=current.revenue)
+        # None rather than "UNKNOWN" when no map was supplied: a missing
+        # classification and a symbol genuinely absent from the map are the
+        # same fact here, and neither is a sector.
+        row["industry"] = (sectors.sector_for(base) if sectors is not None
+                           else None)
         row.update(shares_outstanding=d.shares_outstanding, ebit=d.ebit,
                    ebitda=d.ebitda,
                    effective_tax_rate_pct=d.effective_tax_rate_pct,
