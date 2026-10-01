@@ -68,17 +68,41 @@ risks:
      '\"id\"', which matches once per preset AND once per indicator inside
      it. There are 6, and donchian_breakout and a Bollinger variant
      duplicate what the desk already has - so the real gain is 4."
-  - "TWO MODULES FABRICATE DATA AND BOTH LOOK REAL FROM THE OUTSIDE. Neither
-     was findable from its name, its route, or the README - only by reading
-     the file.
-       services/sector_rotation.py calls _generate_mock_rrg() and returns
-         INVENTED rotation data when its download fails, printing a warning
-         and handing it back as if real.
+  - "THREE MODULES FABRICATE DATA AND ALL THREE LOOK REAL FROM THE OUTSIDE.
+     None was findable from its name, its route, or the README - only by
+     reading the file. This is the single strongest argument for the
+     read-before-import rule: 3 of the ~20 modules probed invent data.
+
+       core/historical_data_service.py is THE WORST AND THE QUIETEST.
+         fetch_daily_ohlcv() calls _synthetic_ohlcv() when the real provider
+         returns nothing - a seeded random walk starting at 100 +/- 20,
+         returned as OHLCV bars with NO warning, NO flag and NO exception.
+         fetch_intraday_ohlcv() does the same through a bare
+         `except Exception: bars = []`. A backtest on a symbol whose fetch
+         failed would run on invented prices and look entirely normal.
+         The salvage map had marked this 'take'.
+
        tca/service.py is ENTIRELY FAKE. generate_tca_report() builds ten
-         'trades' from an md5 hash of the window string and returns them as
-         a transaction cost analysis - expected slippage, realised slippage,
+         'trades' from an md5 hash of the window string and returns them as a
+         transaction cost analysis - expected slippage, realised slippage,
          fees, all synthesised. There is no real TCA in this repository.
-     Both are quarantined. The salvage map had marked tca/ as 'take'."
+         The salvage map had marked this 'take' too.
+
+       services/sector_rotation.py calls _generate_mock_rrg() and returns
+         INVENTED rotation data when its download fails. The least bad of the
+         three: it at least prints a warning.
+
+     All three quarantined. NEVER import a data-fetching module from this
+     repository without reading its failure path first."
+  - "services/data_quality_monitor.py is US-SHAPED, not generic:
+     _is_us_regular_or_extended_market_hours() and
+     _trading_minutes_elapsed_today() hardcode US session boundaries. Pointed
+     at NSE it would mis-assess staleness on every bar. Needs a rewrite, not
+     an import."
+  - "services/corp_actions_service.py needs SQLAlchemy (Session,
+     CorpActionORM) and the desk already has its own corporate actions.
+     services/candle_aggregator.py builds candles from a live tick stream,
+     which this desk does not have. Neither is applicable."
   - "This is an application, not a library. Module boundaries are not
      designed for external import: 4 of 20 targets need siblings or
      dependencies, and a future upstream commit could break any import
