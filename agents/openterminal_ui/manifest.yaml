@@ -68,10 +68,17 @@ risks:
      '\"id\"', which matches once per preset AND once per indicator inside
      it. There are 6, and donchian_breakout and a Bollinger variant
      duplicate what the desk already has - so the real gain is 4."
-  - "backend/services/sector_rotation.py contains _generate_mock_rrg() and
-     falls back to INVENTED data when its download fails, printing a
-     warning and returning it as if real. Do not use until that raises
-     instead. Found by reading the file, not by the function name."
+  - "TWO MODULES FABRICATE DATA AND BOTH LOOK REAL FROM THE OUTSIDE. Neither
+     was findable from its name, its route, or the README - only by reading
+     the file.
+       services/sector_rotation.py calls _generate_mock_rrg() and returns
+         INVENTED rotation data when its download fails, printing a warning
+         and handing it back as if real.
+       tca/service.py is ENTIRELY FAKE. generate_tca_report() builds ten
+         'trades' from an md5 hash of the window string and returns them as
+         a transaction cost analysis - expected slippage, realised slippage,
+         fees, all synthesised. There is no real TCA in this repository.
+     Both are quarantined. The salvage map had marked tca/ as 'take'."
   - "This is an application, not a library. Module boundaries are not
      designed for external import: 4 of 20 targets need siblings or
      dependencies, and a future upstream commit could break any import

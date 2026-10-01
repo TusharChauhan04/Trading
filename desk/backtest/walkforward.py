@@ -50,6 +50,11 @@ from __future__ import annotations
 import statistics
 from dataclasses import dataclass, field
 from datetime import date
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:          # the robustness package imports from backtest, so
+    from desk.backtest.permutation import PermutationResult   # these stay
+    from desk.robustness import RobustnessReport              # lazy
 
 from desk.backtest.costs import CostModel
 from desk.backtest.engine import (BacktestResult, DayResult,
@@ -154,6 +159,49 @@ class WalkForwardResult:
     def windows_positive(self) -> int:
         return sum(1 for w in self.scored
                    if w.net_r is not None and w.net_r > 0)
+
+    def robustness(self, *, num_trials: int) -> "RobustnessReport":
+        """How much of the POOLED result survives admitting the search.
+
+        Pooled window-by-window means as the series: a window is the unit this
+        harness judges on, so it is the unit the deflated statistics should see
+        too. Feeding individual trades instead would claim far more
+        observations than there are independent periods.
+
+        `num_trials` is required for the same reason it is required everywhere
+        else in this project - a silent default of 1 asserts that exactly one
+        thing was tried, which is almost never true of anything worth
+        deflating. Count the strategies times the parameter cells times the
+        regimes that were tried before this one was reported.
+        """
+        from desk.robustness import deflated_sharpe
+
+        series = [w.net_r for w in self.scored if w.net_r is not None]
+        # A window is roughly a quarter when four of them span three years, so
+        # ~4 a year. Passing 252 would annualise a quarterly figure as a daily
+        # one and inflate the Sharpe by sqrt(63).
+        return deflated_sharpe(series, num_trials=num_trials,
+                               periods_per_year=4)
+
+    def timing_test(self, signals, lattice, exit_rows, *, cost_r: float = 0.0,
+                    n_permutations: int = 500) -> "PermutationResult":
+        """Did the entry TIMING carry information, independent of the search?
+
+        A complement to `robustness`, not a substitute. The deflated statistics
+        need observations and will report "insufficient" on the handful of
+        windows a walk-forward produces; a permutation test builds its null
+        from this data and is exact at any sample size. A strategy seeking
+        promotion should pass both - DSR says the result is not an artefact of
+        trying many things, the permutation says it is not an artefact of a
+        rising window.
+
+        See desk.backtest.permutation for why a SIGN-FLIP null would be wrong
+        for R-multiples from a stop-and-target system.
+        """
+        from desk.robustness import signal_timing_test
+
+        return signal_timing_test(signals, lattice, exit_rows, cost_r=cost_r,
+                                  n_permutations=n_permutations)
 
     def verdict(self) -> str:
         """What this evidence licenses saying about the maturity ladder.

@@ -161,3 +161,57 @@ def test_the_pessimistic_tail_is_reported_not_just_the_median() -> None:
 def test_an_empty_universe_returns_nothing_rather_than_zero() -> None:
     assert retail_bound(100_000, pd.Series([], dtype=float)) == {}
     assert retail_bound(100_000, pd.Series([0.0, -1.0])) == {}
+
+
+# -- the ATR term, borrowed from execution_sim and defaulted OFF -------------
+
+def test_the_atr_term_is_off_by_default() -> None:
+    """Zero is a declaration of ignorance, not a claim the term is absent.
+
+    The right value for NSE has not been measured, and a guessed default would
+    silently re-price every result in the project.
+    """
+    assert SlippageModel().atr_multiplier == 0.0
+    m = SlippageModel()
+    assert m.bps(0.001, atr_pct=0.0) == m.bps(0.001, atr_pct=7.0)
+
+
+def test_volatility_costs_more_when_the_term_is_on() -> None:
+    """A stock moving 7% a day has a wider spread than one moving 1.5%, at ANY
+    order size - which the participation model cannot see."""
+    m = SlippageModel(atr_multiplier=0.02)
+    assert m.bps(0.001, atr_pct=7.0) > m.bps(0.001, atr_pct=1.5)
+
+
+def test_the_atr_term_applies_even_without_volume_data() -> None:
+    """It does not depend on order size, so an unmeasurable session must not
+    make a volatile name look cheap."""
+    m = SlippageModel(atr_multiplier=0.02, base_bps=2.0)
+    assert m.bps(float("nan"), atr_pct=5.0) > m.bps(float("nan"), atr_pct=0.0)
+
+
+def test_a_negative_atr_multiplier_raises() -> None:
+    with pytest.raises(ValueError, match="cannot be negative"):
+        SlippageModel(atr_multiplier=-0.01)
+
+
+def test_breakeven_atr_multiplier_rises_with_stop_width() -> None:
+    """The sensitivity that decides which cells are robust.
+
+    Measured on donchian's real gross figures at a 3.53% signal ATR: the 5%
+    stop breaks at 2.4% of a day's ATR per side, which is plausible execution,
+    while the 12% stop needs 16.3%, which is not. Same conclusion the flat
+    slippage analysis reached, arrived at through a different model.
+    """
+    be5 = SlippageModel.breakeven_atr_multiplier(0.0578, 5.0, 3.53)
+    be12 = SlippageModel.breakeven_atr_multiplier(0.1063, 12.0, 3.53)
+    assert be12 > be5
+    assert be5 == pytest.approx(0.024, abs=0.002)
+    assert be12 == pytest.approx(0.163, abs=0.002)
+
+
+def test_a_gross_edge_below_the_statutory_floor_has_no_breakeven() -> None:
+    """NaN, not a number. sma_cross loses at zero slippage - its gross edge
+    does not cover STT - and no execution quality can rescue that."""
+    assert math.isnan(
+        SlippageModel.breakeven_atr_multiplier(0.0005, 3.0, 3.5))

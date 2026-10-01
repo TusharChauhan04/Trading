@@ -88,35 +88,86 @@ class SlippageModel:
     proportional one. `linear` is kept because it is strictly more pessimistic
     and a marginal result should be checked against the pessimistic form."""
 
+    atr_multiplier: float = 0.0
+    """Slippage as a fraction of the instrument's own daily ATR, per side.
+    DEFAULT ZERO, and that is a declaration of ignorance rather than a claim
+    that the term is absent.
+
+    The idea is borrowed from OpenTerminalUI's `execution_sim/simulator.py`,
+    which carries an `atr_slippage_mult`, and it is a real effect our
+    participation model misses entirely: a stock that moves 7% a day has a
+    wider quoted spread and worse fills than one that moves 1.5%, at ANY order
+    size. Participation says nothing about it.
+
+    It defaults to zero because the right value for NSE has not been measured
+    and a guessed default would silently re-price every result in the project.
+    Set it to run a sensitivity: at 0.02, a 3.5% ATR name costs 7bps a side.
+
+    MEASURED AND WORTH KNOWING: donchian's breakout signals fire on names with
+    a 3.53% median ATR against the universe's 3.61% - ratio 0.978. So the
+    wide-stop result is NOT quietly selecting volatile names, which was the
+    obvious way this term could have invalidated it."""
+
     min_bps: float = 0.0
     max_bps: float = 500.0
 
     def __post_init__(self) -> None:
         if self.form not in ("sqrt", "linear"):
             raise ValueError(f"form must be sqrt or linear, got {self.form!r}")
-        if self.base_bps < 0 or self.impact_coefficient_bps < 0:
+        if self.base_bps < 0 or self.impact_coefficient_bps < 0 \
+                or self.atr_multiplier < 0:
             raise ValueError("slippage coefficients cannot be negative")
 
-    def bps(self, participation_rate: float) -> float:
-        """Per-side slippage for one order at this participation rate.
+    def bps(self, participation_rate: float, atr_pct: float = 0.0) -> float:
+        """Per-side slippage for one order at this participation and volatility.
 
         `participation_rate` is order value / the session's traded value, as a
-        FRACTION (0.01 = taking 1% of the day's turnover).
+        FRACTION (0.01 = taking 1% of the day's turnover). `atr_pct` is the
+        instrument's ATR as a PERCENT of price, and only bites when
+        `atr_multiplier` is set.
         """
+        # The volatility term does not depend on order size, so it applies even
+        # where participation is unknown.
+        vol_bps = 0.0
+        if self.atr_multiplier > 0 and math.isfinite(atr_pct) and atr_pct > 0:
+            # atr_pct is a percent; 1% = 100bps.
+            vol_bps = self.atr_multiplier * atr_pct * 100.0
+
         p = float(participation_rate)
         if not math.isfinite(p) or p <= 0:
             # No order, or an unmeasurable session. The base cost still applies
             # - returning 0 here would let a symbol with missing volume data
             # look free to trade, which is the cheapest possible wrong answer.
-            return min(self.max_bps, max(self.min_bps, self.base_bps))
+            return min(self.max_bps,
+                       max(self.min_bps, self.base_bps + vol_bps))
         p = min(p, 1.0)
         shaped = math.sqrt(p) if self.form == "sqrt" else p
-        raw = self.base_bps + self.impact_coefficient_bps * shaped
+        raw = self.base_bps + self.impact_coefficient_bps * shaped + vol_bps
         return min(self.max_bps, max(self.min_bps, raw))
 
-    def round_trip_pct(self, participation_rate: float) -> float:
+    def round_trip_pct(self, participation_rate: float,
+                       atr_pct: float = 0.0) -> float:
         """Both sides, as a PERCENT of notional - the unit costs.py uses."""
-        return 2.0 * self.bps(participation_rate) / 100.0
+        return 2.0 * self.bps(participation_rate, atr_pct) / 100.0
+
+    @staticmethod
+    def breakeven_atr_multiplier(gross_r: float, stop_pct: float,
+                                 atr_pct: float,
+                                 statutory_pct: float = 0.1222) -> float:
+        """The ATR multiplier at which a result reaches exactly zero.
+
+        Answers the sensitivity question directly instead of leaving a
+        parameter dangling: how bad would volatility-driven slippage have to be
+        before this edge disappears? A result that only survives an
+        implausibly small multiplier is not robust.
+
+        Returns NaN when the gross edge does not even cover the statutory
+        charges, since no slippage assumption can rescue that.
+        """
+        budget = gross_r * stop_pct - statutory_pct
+        if budget <= 0 or atr_pct <= 0:
+            return float("nan")
+        return budget / (2.0 * atr_pct)
 
 
 def participation(position_value: float, turnover_value: float) -> float:
