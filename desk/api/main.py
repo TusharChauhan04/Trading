@@ -49,6 +49,7 @@ from desk.research.events import load_calendar
 from desk.research.fundamentals import FundamentalsCache, build_table
 from desk.research.screens import SCREEN_STATUS, SCREENS, run_screen
 from desk.research.store import FilingStore
+from desk.research.valuation import build_valuation_table, suspect_share_counts
 from desk.research.news import load_news
 from desk.scanner.stage2 import run_stage2
 from desk.scanner.stage3 import VerdictCache, run_stage3
@@ -986,6 +987,87 @@ def strategy_pine(key: str) -> dict:
         "warning": "TradingView applies its own commission and slippage, so "
                    "the tester's P&L will not match these figures.",
         "pine": to_pine(s),
+    }
+
+
+@app.get("/research/valuation", tags=["research"])
+def research_valuation(
+    day: date | None = None,
+    limit: int = Query(default=25, ge=1, le=200),
+) -> dict:
+    """Trailing-twelve-month P/E, market cap and earnings yield.
+
+    THREE THINGS THIS DELIBERATELY REFUSES TO SHOW, each because showing them
+    would be worse than a gap:
+
+      - a negative P/E. A loss-making company's market cap over its earnings is
+        negative, and a negative sorts BELOW a genuinely cheap profitable stock
+        in an ascending screen. Earnings yield keeps the sign, because there a
+        negative means what it looks like.
+      - a market cap for any symbol whose price gapped past the 20% circuit band
+        since its last filing. That is what an unrecorded split looks like, and
+        it makes a pre-action share count meet a post-action price. BAJFINANCE
+        read as a P/E of 3.75 that way.
+      - a partial year. Three quarters summed and called a year understates
+        earnings by a quarter and makes everything look cheap.
+
+    AND IT CANNOT HIDE THE STALENESS: every filing on disk is around 637 days
+    old, so these are current prices over year-before-last's profits.
+    `earnings_age_days` is on every row.
+    """
+    target = day or _latest_snapshot_day()
+    if target is None:
+        raise HTTPException(404, "no market snapshot on file")
+    filings = CONFIGS / "research" / "filings"
+    if not filings.is_dir():
+        return {"as_of": str(target), "rows": [],
+                "caveat": "no filings on disk - run 'python -m "
+                          "desk.marketdata.refresh fundamentals'"}
+    symbols = sorted(p.name for p in filings.iterdir() if p.is_dir())
+    store = BarStore(CONFIGS / "bhavcopy", calendar=_calendar_or_none())
+    try:
+        closes = store.load_day(target).set_index("symbol")["close"]
+    except StoreError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+    # The window a corporate action could have happened in: from roughly the
+    # filing period to now. Detection is doing nearly all the work here -
+    # configs/corporate_actions/ holds three symbols of 186.
+    suspect: set[str] = set()
+    try:
+        hist = store.history(as_of=target, lookback=420,
+                             symbols=[f"{s}.NS" for s in symbols],
+                             columns=["open", "close"])
+        suspect = suspect_share_counts(hist.frame.reset_index())
+    except Exception as exc:                            # noqa: BLE001
+        # Counted as a caveat, never silently skipped: without the detection
+        # every split-affected symbol would show a fake bargain.
+        log.warning("valuation: discontinuity scan failed: %s", exc)
+
+    table, coverage = build_valuation_table(
+        FilingStore(filings), symbols, closes, as_of=target, suspect=suspect)
+    usable = table[table["pe_ttm"].notna()].nsmallest(limit, "pe_ttm")
+    return {
+        "as_of": str(target),
+        "coverage": coverage,
+        "share_count_suspect": sorted(suspect),
+        "median_earnings_age_days": (
+            int(table["earnings_age_days"].median()) if len(table) else None),
+        "caveats": [
+            "every filing is ~637 days old; these are current prices over "
+            "year-before-last profits",
+            f"{len(suspect)} symbols refused a market cap - price gapped past "
+            f"the circuit band since their last filing, which is what an "
+            f"unrecorded split looks like",
+            "negative P/E is reported as null, not as a negative number",
+        ],
+        "cheapest_by_pe": [
+            {"symbol": s, **{k: (None if pd.isna(v) else v)
+                             for k, v in r.items()}}
+            for s, r in usable[["nature", "pe_ttm", "earnings_yield_pct",
+                                "market_cap", "close",
+                                "earnings_age_days"]].iterrows()
+        ],
     }
 
 
