@@ -63,7 +63,29 @@ verified:
      sma_cross, ema_cross, rsi_reversion, macd_signal,
      bollinger_breakout, donchian_breakout."
 
+  - "scanner_engine/detectors.py holds 6 pattern detectors and is the most
+     directly useful thing left in the repo: breakout_n_day_high (with rvol
+     and a breakout buffer), bb_squeeze_breakout, nr7_breakout,
+     inside_bar_breakout, trend_retest, supertrend_flip_ema_stack - the last
+     being the cousin of the catalogue's unbuilt supertrend_adx.
+     NOTE IT GETS THE OFF-BY-ONE RIGHT where the Pine exporter and the
+     preset spec did not: prev_high = df['High'].iloc[-(n+1):-1].max()
+     excludes the current bar.
+     Its _step(name, passed, value, expected) design matches this desk's own
+     'declare what you checked' convention - a detector returns WHY it passed
+     or failed, not just a boolean."
+
 risks:
+  - "This is an application, not a library. Module boundaries are not
+     designed for external import: 4 of 20 targets need siblings or
+     dependencies, and a future upstream commit could break any import
+     without that being a bug on their side. smoke_test.py exists to catch
+     exactly that."
+  - "agents/*/upstream/ is gitignored, so none of this is on GitHub. The
+     September OneDrive event took vibe_trading's src/factors/base.py the
+     same way. The manifest and smoke test are the recovery instructions."
+  - "No release tags, so the pin is a bare commit - same weakness as
+     vibe_trading."
   - "NOT 19 strategy templates. An earlier count of 19 came from grepping
      '\"id\"', which matches once per preset AND once per indicator inside
      it. There are 6, and donchian_breakout and a Bollinger variant
@@ -103,16 +125,21 @@ risks:
      CorpActionORM) and the desk already has its own corporate actions.
      services/candle_aggregator.py builds candles from a live tick stream,
      which this desk does not have. Neither is applicable."
-  - "This is an application, not a library. Module boundaries are not
-     designed for external import: 4 of 20 targets need siblings or
-     dependencies, and a future upstream commit could break any import
-     without that being a bug on their side. smoke_test.py exists to catch
-     exactly that."
-  - "agents/*/upstream/ is gitignored, so none of this is on GitHub. The
-     September OneDrive event took vibe_trading's src/factors/base.py the
-     same way. The manifest and smoke test are the recovery instructions."
-  - "No release tags, so the pin is a bare commit - same weakness as
-     vibe_trading."
+  - "nlp/sentiment.py (the REAL one, 237 lines at upstream/nlp/ - the
+     backend/ path is a 3-line re-export) is a lexicon scorer with negation
+     and intensifier handling, pure Python, no torch. Genuinely decent, and
+     BLOCKED ON DATA rather than taken: configs/research/news.json is a
+     SINGLE fetch from 2026-09-18 holding 118 clusters with ZERO symbol
+     tagging and no history. Testing whether sentiment predicts returns needs
+     news history across the backtest window AND articles tagged to symbols.
+     We have neither, so wiring a scorer whose predictive value cannot be
+     measured would be an unvalidated signal in the funnel.
+     THIRD THING BLOCKED ON DATA, NOT CODE: the DCF (no balance sheet), two
+     of three screens (ROE, debt-to-market-cap), and this."
+  - "core/formula_engine.py is the RIGHT pattern for user-defined formulas -
+     an ast.NodeVisitor whitelist validator rather than eval(). Worth copying
+     if the desk ever offers custom screens. Not needed now: our screens are
+     declarative dicts in desk/research/screens.py, which needs no evaluator."
 
 not_in_scope:
   - "The web application: FastAPI backend, React frontend, Docker, OMS,

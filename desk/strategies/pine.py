@@ -64,6 +64,29 @@ class PineStrategy:
     hold_bars: int
     measured_net_r: float
     permutation_p: float
+    buffer_pct: float = 1.0
+    """Require the close to clear the prior channel high by this much.
+
+    MEASURED, and it is the only filter tried that helped. A 1% buffer raised
+    month-weighted net R from +0.0428 to +0.0505 - about 18% - while keeping
+    72% of trades, holding the permutation p at 0.0033, and WIDENING the edge
+    over shuffled timing from +0.0189 to +0.0293. That last number is the one
+    that matters: a filter can raise net R by keeping a luckier subset of the
+    same edge, and only a wider timing edge says it added information.
+
+    VOLUME CONFIRMATION WAS TRIED AND IT HURT, which is worth stating because
+    it contradicts the oldest piece of breakout folklore. Requiring relative
+    volume on the breakout bar made things monotonically worse and destroyed the
+    signal outright at moderate thresholds:
+
+        unfiltered    net +0.0428   p 0.0033   timing edge +0.0189
+        rvol >= 1.25  net +0.0289   p 0.3422   timing edge +0.0034
+        rvol >= 1.50  net +0.0288   p 0.4452   timing edge +0.0016
+
+    So no volume gate is exported. The idea came from OpenTerminalUI's
+    scanner_engine/detectors.py, which gates on exactly that - and measuring it
+    was the right response to finding it."""
+
     note: str = ""
 
     @property
@@ -78,17 +101,22 @@ MEASURED: dict[str, PineStrategy] = {
     "donchian_20d": PineStrategy(
         name="Donchian 20 - desk measured",
         channel_len=20, stop_pct=12.0, target_pct=24.0, hold_bars=20,
-        measured_net_r=0.0428, permutation_p=0.0025,
-        note="12% stop, 24% target, ~20 session hold. Survives a permutation "
-             "test on entry timing; the same rule at a 60-session hold does "
-             "NOT (p=0.57) and is market drift rather than signal.",
+        measured_net_r=0.0505, permutation_p=0.0033, buffer_pct=1.0,
+        note="12% stop, 24% target, ~20 session hold, and the close must clear "
+             "the prior 20-bar high by 1%. Survives a permutation test on entry "
+             "timing; the same rule at a 60-session hold does NOT (p=0.57) and "
+             "is market drift rather than signal. Volume confirmation was "
+             "tried and made it worse - see buffer_pct.",
     ),
     "bollinger_20d": PineStrategy(
         name="Bollinger breakout - desk measured",
         channel_len=20, stop_pct=12.0, target_pct=24.0, hold_bars=20,
-        measured_net_r=0.0407, permutation_p=0.0025,
-        note="Independent agreement with donchian_20d on the same cell, which "
-             "is the main reason to take either seriously.",
+        measured_net_r=0.0407, permutation_p=0.0025, buffer_pct=0.0,
+        note="Independent agreement with donchian_20d on the stop, target and "
+             "hold, which is the main reason to take either seriously. "
+             "buffer_pct is 0 because the buffer sweep was run on donchian "
+             "ONLY - carrying donchian's 1% across to this rule would be "
+             "claiming a measurement that was never taken.",
     ),
 }
 
@@ -114,9 +142,10 @@ def to_pine(strategy: PineStrategy) -> str:
 //
 // {s.note}
 //
-// NOT VALIDATED. t is about +0.84 and the Deflated Sharpe Ratio is 0.146
+// NOT VALIDATED. t is about +0.95 and the Deflated Sharpe Ratio is 0.280
 // against a >0.95 bar, on 36 monthly cohorts against the 60 the estimators
-// need. This is a DRAFT configuration shown on a chart, not a system to trade.
+// need. Better than the 0.146 this cell measured before the buffer, and still
+// nowhere near passing. A DRAFT configuration on a chart, not a system to trade.
 //
 // TradingView applies ITS OWN commission and slippage, so the tester's P&L
 // will not match the figures above. Set commission ~0.12% and a few ticks of
@@ -126,6 +155,7 @@ strategy("{s.name}", overlay=true, margin_long=100, margin_short=100,
      calc_on_every_tick=false, process_orders_on_close=true)
 
 channelLen = input.int({s.channel_len}, "Channel length", minval=2)
+bufferPct  = input.float({s.buffer_pct}, "Breakout buffer %", minval=0.0, step=0.25)
 stopPct    = input.float({s.stop_pct}, "Stop %", minval=0.1, step=0.5)
 targetPct  = input.float({s.target_pct}, "Target %", minval=0.1, step=0.5)
 holdBars   = input.int({s.hold_bars}, "Max bars held", minval=1)
@@ -135,8 +165,13 @@ holdBars   = input.int({s.hold_bars}, "Max bars held", minval=1)
 // would report zero trades and look like a quiet market. Compare against the
 // channel as it stood before this bar.
 priorHigh = ta.highest(high, channelLen)[1]
+trigger   = priorHigh * (1 + bufferPct / 100)
 
-longSignal = ta.crossover(close, priorHigh)
+// THE BUFFER IS MEASURED, NOT COSMETIC. Requiring the close to clear the prior
+// high by 1% raised net R about 18% and WIDENED the edge over shuffled entry
+// timing, which is what adding information looks like. A close a paisa above
+// the high is not a breakout.
+longSignal = ta.crossover(close, trigger)
 
 // LONG ONLY, deliberately: Indian retail cannot short cash equity beyond
 // intraday, so a short side would be signals nobody here can act on.
@@ -155,7 +190,7 @@ barsHeld = strategy.position_size > 0 ? bar_index - strategy.opentrades.entry_ba
 if (barsHeld >= holdBars)
     strategy.close("Long", comment="time")
 
-plot(priorHigh, "Prior {s.channel_len}-bar high", color=color.new(color.orange, 0))
+plot(trigger, "Trigger ({s.buffer_pct}% above prior high)", color=color.new(color.orange, 0))
 plotshape(longSignal, "Breakout", shape.triangleup, location.belowbar,
      color=color.new(color.teal, 0), size=size.tiny)
 '''
