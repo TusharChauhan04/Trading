@@ -44,6 +44,36 @@ class RiskConfig(BaseModel):
     max_stop_distance_pct: float = Field(default=15.0, gt=0)    # sanity ceiling
     lot_size: int = Field(default=1, ge=1)                      # 1 for cash equity
 
+    def drawdown_outlook(self, r_multiples, *, n_trades: int = 200,
+                         n_paths: int = 2000):
+        """What `risk_pct` implies for drawdown, given a real trade sequence.
+
+        Sizing is the one decision this config makes that cannot be undone by a
+        later gate, and `risk_pct` defaults to 1.0 without anything in the
+        config knowing what that costs. This answers it from measured trades
+        rather than from a rule of thumb.
+
+        MEASURED on the donchian 12%/20-session sequence, 200 trades:
+
+            0.5% risk   median DD  8.4%   p95 18.2%   P(DD>20%)  2.5%
+            1.0% risk   median DD 16.2%   p95 33.2%   P(DD>20%) 32.6%
+            2.0% risk   median DD 30.1%   p95 55.7%   P(DD>35%) 35.9%
+
+        At 1% there is roughly a one-in-three chance of a 20% drawdown inside
+        six months on an edge of +0.08R a trade. That is not a reason to avoid
+        the edge; it is a reason the default is not obviously right for it.
+
+        Uses a BLOCK bootstrap, which keeps losing streaks intact. The IID
+        alternative reported 16.8% where this reports 33.2% on the same data -
+        see desk.backtest.ruin for why that direction of error is the one that
+        matters.
+        """
+        from desk.backtest.ruin import simulate_paths
+
+        return simulate_paths(r_multiples, n_trades=n_trades,
+                              n_paths=n_paths,
+                              risk_per_trade_pct=self.risk_pct)
+
     # --- volatility and execution-quality safeguards -----------------------
     max_slippage_pct: float = Field(default=0.5, gt=0)
     """Slippage as a % of PRICE. Catches an outright illiquid name."""
