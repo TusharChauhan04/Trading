@@ -59,7 +59,7 @@ SKIP = {
     "backend/core/factor_analysis.py": "SQLAlchemy not installed",
 }
 
-DATA = {"backend/config/screeners.yaml": "6 declarative screens"}
+DATA = {"backend/config/screeners.yaml": "3 declarative screens"}
 
 
 def load(rel: str):
@@ -115,6 +115,23 @@ def main() -> int:
         print(f"{'ok  ' if present else 'FAIL'}  {rel}  ({why})")
         if not present:
             failures.append(rel)
+
+    # THREE screens, not six. The manifest and the salvage map both said six
+    # until the top-level keys were actually counted - the same class of
+    # miscount that produced "19 strategy templates" for a dict of 6. Asserted
+    # here so the wrong number cannot come back, and so an upstream change to
+    # the file is noticed rather than assumed away.
+    yml = UP / "backend/config/screeners.yaml"
+    if yml.is_file():
+        import re as _re
+        keys = _re.findall(r"^([a-z_]+):\s*$", yml.read_text(encoding="utf-8"),
+                           _re.MULTILINE)
+        if len(keys) != 3:
+            failures.append(f"screeners.yaml has {len(keys)} screens, "
+                            f"expected 3: {keys}")
+            print(f"FAIL  screeners.yaml has {len(keys)} screens, expected 3")
+        else:
+            print(f"ok    screeners.yaml: {len(keys)} screens {keys}")
 
     # ---- and the ones we rely on must still BEHAVE --------------------
     print("-" * 62)

@@ -46,7 +46,9 @@ from desk.llm.providers.local import LocalProvider
 from desk.llm.providers.openai import OpenAIProvider
 from desk.regime.engine import compute_regime
 from desk.research.events import load_calendar
-from desk.research.fundamentals import FundamentalsCache
+from desk.research.fundamentals import FundamentalsCache, build_table
+from desk.research.screens import SCREEN_STATUS, SCREENS, run_screen
+from desk.research.store import FilingStore
 from desk.research.news import load_news
 from desk.scanner.stage2 import run_stage2
 from desk.scanner.stage3 import VerdictCache, run_stage3
@@ -54,6 +56,7 @@ from desk.scanner.stage4 import run_stage4
 from desk.store import BarStore, StoreError
 from desk.strategies.adapters import ADAPTERS, propose_all
 from desk.strategies.catalog import catalog_status, eligible
+from desk.strategies.pine import MEASURED, to_pine
 from desk.strategies.presets import preset_rules
 
 # Without this the lines below are written to nowhere - see
@@ -957,6 +960,76 @@ def strategies() -> list[dict]:
 def strategies_eligible(regime: Regime, trusted_only: bool = True) -> list[str]:
     """Who may speak in a given regime. Hostile-regime strategies are silenced."""
     return [s.key for s in eligible(regime, trusted_only=trusted_only)]
+
+
+@app.get("/strategies/pine/{key}", tags=["strategies"])
+def strategy_pine(key: str) -> dict:
+    """TradingView Pine for a measured configuration, so it can be eyeballed.
+
+    Long only, the measured 12% stop and 24% target, and the channel shifted by
+    one bar - without that shift the rule can never fire, which is the third
+    time this project has met the same off-by-one. The generated header carries
+    the measured net R, the permutation p-value and the fact that it is DRAFT,
+    so a chart opened later still shows what the evidence was.
+    """
+    if key not in MEASURED:
+        raise HTTPException(
+            404, f"unknown configuration {key!r}; have {sorted(MEASURED)}")
+    s = MEASURED[key]
+    return {
+        "key": key, "name": s.name, "maturity": "DRAFT",
+        "stop_pct": s.stop_pct, "target_pct": s.target_pct,
+        "risk_reward": s.risk_reward, "hold_bars": s.hold_bars,
+        "measured_net_r": s.measured_net_r,
+        "permutation_p": s.permutation_p,
+        "note": s.note,
+        "warning": "TradingView applies its own commission and slippage, so "
+                   "the tester's P&L will not match these figures.",
+        "pine": to_pine(s),
+    }
+
+
+@app.get("/research/screens", tags=["research"])
+def research_screens(day: date | None = None) -> dict:
+    """Declarative fundamental screens, and which of them can actually run.
+
+    Two of the three are blocked on the same balance-sheet gap that blocks the
+    DCF - ROE needs shareholders' equity and debt-to-market-cap needs borrowings,
+    and NSE quarterly results XBRL carries neither. They are REPORTED as blocked
+    with the missing fields named rather than omitted, because "this cannot run
+    here" and "this matched nothing" are different facts.
+    """
+    target = day or _latest_snapshot_day()
+    store = FilingStore(CONFIGS / "research" / "filings")
+    symbols = sorted(p.name for p in
+                     (CONFIGS / "research" / "filings").iterdir()
+                     if p.is_dir()) if (CONFIGS / "research" / "filings").is_dir() else []
+    out: dict = {"as_of": str(target), "symbols_with_filings": len(symbols),
+                 "status": SCREEN_STATUS, "screens": {}}
+    if not symbols:
+        out["caveat"] = ("no filings on disk - run 'python -m "
+                         "desk.marketdata.refresh fundamentals'")
+        return out
+    table, coverage = build_table(store, symbols, as_of=target)
+    out["coverage"] = coverage
+    for name, screen in SCREENS.items():
+        if not screen.runnable:
+            out["screens"][name] = {
+                "runnable": False,
+                "missing_fields": list(screen.missing_fields),
+                "why": "NSE quarterly results XBRL is a profit-and-loss "
+                       "statement; these need a balance sheet",
+                "rules": [str(r) for r in screen.rules],
+            }
+            continue
+        hits = run_screen(name, table)
+        out["screens"][name] = {
+            "runnable": True,
+            "rules": [str(r) for r in screen.rules],
+            "passed": len(hits), "of": len(table),
+            "symbols": sorted(hits.index.tolist()),
+        }
+    return out
 
 
 @app.get("/strategies/presets", tags=["strategies"])

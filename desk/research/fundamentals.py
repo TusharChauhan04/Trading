@@ -71,7 +71,7 @@ COLUMNS = (
     # DCF is still blocked (capex, working capital and net debt are not in
     # NSE's quarterly results XBRL at all).
     "shares_outstanding", "ebit", "ebitda", "effective_tax_rate_pct",
-    "nopat", "interest_cover",
+    "nopat", "op_margin_pct", "interest_cover",
 )
 
 #: How far either side of "one year ago" a filing may sit and still count as
@@ -197,11 +197,13 @@ def build_table(store: FilingStore, symbols, *, as_of: datetime | date
                    profit_before_tax=current.profit_before_tax,
                    finance_costs=current.finance_costs,
                    depreciation=current.depreciation,
-                   tax_expense=current.tax_expense)
+                   tax_expense=current.tax_expense,
+                   revenue=current.revenue)
         row.update(shares_outstanding=d.shares_outstanding, ebit=d.ebit,
                    ebitda=d.ebitda,
                    effective_tax_rate_pct=d.effective_tax_rate_pct,
-                   nopat=d.nopat, interest_cover=d.interest_cover)
+                   nopat=d.nopat, op_margin_pct=d.op_margin_pct,
+                   interest_cover=d.interest_cover)
         rows[base] = row
         coverage["complete" if prior is not None
                  else "no year-ago comparison"] += 1

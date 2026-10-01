@@ -25,7 +25,7 @@ provides:
   - SCANNER             # detectors, indicators, ranking
   - EXECUTION_MODEL     # realistic fill modelling
   - SENTIMENT           # news sentiment scoring
-  - SCREENS             # 6 declarative screens as YAML data
+  - SCREENS             # 3 declarative screens as YAML data (NOT 6)
 
 # WHY NOTHING IS INSTALLED, and why that is not laziness.
 #

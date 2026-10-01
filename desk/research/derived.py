@@ -128,6 +128,16 @@ class DerivedFundamentals:
     """ebit x (1 - effective tax rate), QUARTERLY. The closest thing to a cash
     return this data supports, and still an accrual figure."""
 
+    op_margin_pct: float | None = None
+    """100 x ebit / revenue. Operating margin before interest and tax.
+
+    Added because it is the one field OpenTerminalUI's `quality` screen wants
+    that our data can actually supply - the other two, ROE and
+    debt-to-market-cap, need a balance sheet. Distinct from net_margin_pct,
+    which is after both: a company can carry a healthy operating margin and a
+    poor net one purely through leverage, and a quality screen wants to see the
+    difference."""
+
     interest_cover: float | None = None
     """ebit / finance_costs. How many times over operating profit covers the
     interest bill - the most useful solvency read available here, and the one
@@ -154,7 +164,7 @@ class DerivedFundamentals:
         """Which fields actually came out. For reporting coverage honestly."""
         return tuple(f for f in ("shares_outstanding", "ebit", "ebitda",
                                  "effective_tax_rate_pct", "nopat",
-                                 "interest_cover")
+                                 "op_margin_pct", "interest_cover")
                      if getattr(self, f) is not None)
 
 
@@ -163,7 +173,8 @@ def derive(*, paid_up_capital: float | None = None,
            profit_before_tax: float | None = None,
            finance_costs: float | None = None,
            depreciation: float | None = None,
-           tax_expense: float | None = None) -> DerivedFundamentals:
+           tax_expense: float | None = None,
+           revenue: float | None = None) -> DerivedFundamentals:
     """Derive what the P&L supports. Keyword-only, because six positional
     floats in a row is how a caller silently swaps two of them.
 
@@ -203,8 +214,13 @@ def derive(*, paid_up_capital: float | None = None,
     if ebit is not None and fc is not None and fc > 0:
         cover = ebit / fc
 
+    # Revenue must be strictly positive: a zero-revenue quarter makes the
+    # margin undefined, not zero, and inf would rank first in any screen.
+    rev = _pos(revenue)
+    op_margin = 100.0 * ebit / rev if (ebit is not None and rev) else None
+
     return DerivedFundamentals(
         shares_outstanding=_finite(shares), ebit=ebit, ebitda=ebitda,
         effective_tax_rate_pct=_finite(rate), nopat=_finite(nopat),
-        interest_cover=_finite(cover),
+        op_margin_pct=_finite(op_margin), interest_cover=_finite(cover),
     )
