@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import math
 
+import pytest
+
 from desk.research.derived import DCF_MISSING_INPUTS, derive
 
 
@@ -158,3 +160,68 @@ def test_a_nan_input_is_treated_as_absent() -> None:
                profit_before_tax=nan, finance_costs=1.0)
     assert d.shares_outstanding is None
     assert d.ebit is None
+
+
+# -- PEG: the one of six fundamental scores our data supports ----------------
+
+def test_peg_is_pe_over_growth_in_percent() -> None:
+    from desk.research.derived import peg_ratio
+
+    assert peg_ratio(20.0, 15.0) == pytest.approx(1.3333, abs=1e-4)
+
+
+def test_a_missing_input_is_none_not_zero() -> None:
+    """UPSTREAM RETURNS 0.0 HERE, and PEG SORTS ASCENDING - so a company with
+    no growth figure would rank FIRST in a value screen purely for having no
+    data. All six of their scores share this: a missing-data Altman Z of 0.0
+    reads as severe distress, a Graham number of 0.0 as no intrinsic value."""
+    from desk.research.derived import peg_ratio
+
+    assert peg_ratio(None, 15.0) is None
+    assert peg_ratio(20.0, None) is None
+    assert peg_ratio(None, None) is None
+
+
+def test_a_shrinking_company_has_no_peg() -> None:
+    """Negative growth gives a negative PEG, which sorts first ascending - it
+    would put the fastest-declining businesses at the top of a value list."""
+    from desk.research.derived import peg_ratio
+
+    assert peg_ratio(20.0, -10.0) is None
+    assert peg_ratio(20.0, 0.0) is None
+
+
+def test_a_loss_making_company_has_no_peg() -> None:
+    from desk.research.derived import peg_ratio
+
+    assert peg_ratio(-5.0, 15.0) is None
+
+
+def test_a_base_effect_is_refused_not_rewarded() -> None:
+    """THE one this nearly shipped wrong.
+
+    PFC's trailing profit growth measured 12,227.6% because its year-ago
+    quarter was near zero. PEG then collapses to 0.0003 and, sorting ascending,
+    the single most extreme artefact in the table ranks FIRST. Refused rather
+    than clamped: clamping to the ceiling still yields a very low PEG and still
+    ranks it near the top.
+    """
+    from desk.research.derived import MAX_PLAUSIBLE_GROWTH_PCT, peg_ratio
+
+    assert peg_ratio(3.60, 12227.6) is None
+    assert peg_ratio(20.0, MAX_PLAUSIBLE_GROWTH_PCT) is not None
+    assert peg_ratio(20.0, MAX_PLAUSIBLE_GROWTH_PCT + 0.1) is None
+    # Real growth still computes - the ceiling must not swallow the signal.
+    assert peg_ratio(3.60, 23.2) == pytest.approx(0.1552, abs=1e-3)
+
+
+def test_the_five_blocked_scores_each_name_their_requirement() -> None:
+    """So that if a balance-sheet source ever appears, the cost of each is
+    known rather than re-derived."""
+    from desk.research.derived import BLOCKED_SCORES
+
+    assert len(BLOCKED_SCORES) == 5
+    assert "working capital" in BLOCKED_SCORES["altman_z_score"]
+    assert "book value" in BLOCKED_SCORES["graham_number"]
+    assert "ROIC" in BLOCKED_SCORES["magic_formula_rank"]
+    assert "cash flow" in BLOCKED_SCORES["piotroski_f_score"]

@@ -54,7 +54,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-__all__ = ["DerivedFundamentals", "DCF_MISSING_INPUTS", "derive"]
+__all__ = ["BLOCKED_SCORES", "DCF_MISSING_INPUTS", "DerivedFundamentals",
+           "MAX_PLAUSIBLE_GROWTH_PCT",
+           "derive", "peg_ratio"]
 
 #: What a FCFF DCF still needs that NSE quarterly XBRL does not carry. Kept as
 #: data rather than prose so the API and the dashboard can report the blocker
@@ -166,6 +168,75 @@ class DerivedFundamentals:
                                  "effective_tax_rate_pct", "nopat",
                                  "op_margin_pct", "interest_cover")
                      if getattr(self, f) is not None)
+
+
+#: OpenTerminalUI's core/fundamental_scores.py holds six scores. Five are
+#: blocked on the same balance-sheet gap as the DCF, and this records exactly
+#: what each one needs - so if a source ever appears, the cost of each is known
+#: rather than re-derived.
+BLOCKED_SCORES = {
+    "piotroski_f_score": ("cash flow from operations, ROA and its prior year, "
+                          "long-term debt, total assets, current ratio"),
+    "altman_z_score": ("working capital, retained earnings, total "
+                       "liabilities, total assets - 4 of its 7 inputs. We do "
+                       "have EBIT, market value of equity and sales"),
+    "graham_number": "book value per share",
+    "magic_formula_rank": "ROIC, which needs invested capital",
+    "dupont_analysis": "total assets and shareholders' equity",
+}
+
+
+#: Growth above this is a BASE EFFECT, not a growth rate, and PEG's premise -
+#: price relative to SUSTAINABLE growth - does not survive it. A judgement, not
+#: a measurement, and it is here as a named constant so it can be argued with.
+#:
+#: MEASURED, and the reason this exists: PFC's trailing profit growth comes out
+#: at 12,227.6% because its year-ago quarter was near zero. PEG then collapses
+#: to 0.0003, and PEG SORTS ASCENDING - so the single most extreme base-effect
+#: artefact in the table would rank FIRST in a value screen. That is the same
+#: structural failure as upstream's missing-data 0.0, arrived at from the other
+#: direction, and it would have shipped.
+MAX_PLAUSIBLE_GROWTH_PCT = 100.0
+
+
+def peg_ratio(pe: float | None, earnings_growth_pct: float | None, *,
+              max_growth_pct: float = MAX_PLAUSIBLE_GROWTH_PCT
+              ) -> float | None:
+    """P/E divided by earnings growth. The one score of six our data supports.
+
+    `earnings_growth_pct` is a PERCENTAGE, so a P/E of 20 against 15% growth
+    gives 1.33 - the conventional reading, where under 1 is cheap for the
+    growth.
+
+    REIMPLEMENTED RATHER THAN IMPORTED, because upstream's version returns 0.0
+    for missing or zero input and PEG IS SORTED ASCENDING. A company with no
+    growth figure would score 0.0 and rank FIRST - the most attractive position
+    in the screen - purely for having no data. That is the same trap as a
+    negative P/E sorting below a cheap one, and all six of upstream's scores
+    share it: a missing-data Altman Z of 0.0 reads as severe distress, a
+    missing-data Graham number of 0.0 reads as no intrinsic value.
+
+    None for every case where the ratio is not meaningful:
+      - either input missing
+      - P/E non-positive (a loss-making company has no P/E; see
+        desk/research/valuation.py)
+      - growth non-positive. A SHRINKING company's PEG is negative, and a
+        negative sorts first in an ascending screen, which would put the
+        fastest-declining businesses at the top of a value list.
+      - growth above `max_growth_pct`. See MAX_PLAUSIBLE_GROWTH_PCT: a
+        near-zero prior-year base produces a growth figure in the thousands of
+        percent, PEG collapses toward zero, and the artefact ranks first.
+    """
+    p, g = _pos(pe), _pos(earnings_growth_pct)
+    if p is None or g is None:
+        return None
+    if g > max_growth_pct:
+        # Refused, not clamped. Clamping to the ceiling would still produce a
+        # very low PEG and still rank the artefact near the top; the honest
+        # answer is that this company's PEG is not computable from a base
+        # effect.
+        return None
+    return _finite(p / g)
 
 
 def derive(*, paid_up_capital: float | None = None,

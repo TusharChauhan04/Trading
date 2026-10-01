@@ -46,6 +46,7 @@ from desk.llm.providers.local import LocalProvider
 from desk.llm.providers.openai import OpenAIProvider
 from desk.regime.engine import compute_regime
 from desk.research.events import load_calendar
+from desk.research.derived import BLOCKED_SCORES, peg_ratio
 from desk.research.fundamentals import FundamentalsCache, build_table
 from desk.research.screens import SCREEN_STATUS, SCREENS, run_screen
 from desk.research.store import FilingStore
@@ -1044,8 +1045,21 @@ def research_valuation(
         # every split-affected symbol would show a fake bargain.
         log.warning("valuation: discontinuity scan failed: %s", exc)
 
+    store_f = FilingStore(filings)
     table, coverage = build_valuation_table(
-        FilingStore(filings), symbols, closes, as_of=target, suspect=suspect)
+        store_f, symbols, closes, as_of=target, suspect=suspect)
+
+    # PEG joins the TTM P/E here to the growth figure the fundamentals table
+    # already computes. The ONE of OpenTerminalUI's six fundamental scores our
+    # data supports - the other five need a balance sheet, and BLOCKED_SCORES
+    # records exactly what each would need.
+    fund, _fcov = build_table(store_f, symbols, as_of=target)
+    growth = fund["profit_growth_yoy_pct"] if "profit_growth_yoy_pct"         in fund.columns else None
+    table["peg_ttm"] = [
+        peg_ratio(table.at[s, "pe_ttm"],
+                  (growth.get(s) if growth is not None else None))
+        for s in table.index
+    ]
     usable = table[table["pe_ttm"].notna()].nsmallest(limit, "pe_ttm")
     return {
         "as_of": str(target),
@@ -1060,12 +1074,16 @@ def research_valuation(
             f"the circuit band since their last filing, which is what an "
             f"unrecorded split looks like",
             "negative P/E is reported as null, not as a negative number",
+            "peg_ttm is null for a shrinking or loss-making company rather "
+            "than negative - PEG sorts ascending, so a negative would rank "
+            "first",
         ],
+        "blocked_scores": dict(BLOCKED_SCORES),
         "cheapest_by_pe": [
             {"symbol": s, **{k: (None if pd.isna(v) else v)
                              for k, v in r.items()}}
-            for s, r in usable[["nature", "pe_ttm", "earnings_yield_pct",
-                                "market_cap", "close",
+            for s, r in usable[["nature", "pe_ttm", "peg_ttm",
+                                "earnings_yield_pct", "market_cap", "close",
                                 "earnings_age_days"]].iterrows()
         ],
     }
