@@ -50,6 +50,10 @@ this being plausible.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:            # imported lazily in sized_for to keep this
+    from desk.backtest.slippage import SlippageModel   # module dependency-free
 
 __all__ = ["CostModel", "TradeCosts", "ZERO_COSTS"]
 
@@ -90,7 +94,45 @@ class CostModel:
 
     slippage_bps: float = 15.0
     """Basis points per side, always against us. A GUESS, not a
-    measurement - see the module docstring."""
+    measurement - see the module docstring. `sized_for` replaces it with a
+    size-aware figure where position value and turnover are known."""
+
+    @classmethod
+    def sized_for(cls, *, position_value: float, turnover_value: float,
+                  model: "SlippageModel | None" = None,
+                  **kwargs: float) -> "CostModel":
+        """A CostModel whose slippage reflects how much of the day we take.
+
+        The flat 15bps default is the dominant term in every marginal result
+        this desk produces, and it ignores order size entirely. Measured on the
+        real post-Stage-0 universe (median turnover Rs 34 crore), a Rs 1 lakh
+        position is 0.03% of a session and the modelled slippage is 2.6bps a
+        side - not 15.
+
+        THIS IS A MODEL, NOT A CALIBRATION. The impact coefficient is
+        OpenTerminalUI's and has never been fitted to NSE, and the bid-ask
+        spread cannot be measured from bhavcopy at all. Two things it does not
+        capture, both of which push the true figure UP:
+
+          - adverse selection. A breakout entry buys into strength, which is
+            systematically the worst moment to be a buyer. Daily bars cannot
+            see it, and for a breakout strategy it is the biggest unmodelled
+            term.
+          - the real spread on the thin end of the universe.
+
+        So use it to show that a result is NOT merely an artefact of an
+        inflated slippage guess. Do not use it to claim a result is safe: a
+        conclusion that survives only at the modelled figure and dies at 15bps
+        is still a conclusion about slippage.
+
+        `turnover_value` should be the PREVIOUS session's traded value in
+        rupees - bhavcopy reports `turnover_lacs`, so multiply by 100,000.
+        """
+        from desk.backtest.slippage import SlippageModel, participation
+
+        model = model or SlippageModel()
+        rate = participation(position_value, turnover_value)
+        return cls(slippage_bps=model.bps(rate), **kwargs)
 
     def charges(self, *, value: float, side: str) -> float:
         """Statutory and broker charges on one side, in rupees."""
