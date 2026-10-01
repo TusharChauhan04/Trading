@@ -54,6 +54,7 @@ from desk.scanner.stage4 import run_stage4
 from desk.store import BarStore, StoreError
 from desk.strategies.adapters import ADAPTERS, propose_all
 from desk.strategies.catalog import catalog_status, eligible
+from desk.strategies.presets import preset_rules
 
 # Without this the lines below are written to nowhere - see
 # desk.settings.configure_logging. DESK_LOG_FILE makes them
@@ -956,6 +957,50 @@ def strategies() -> list[dict]:
 def strategies_eligible(regime: Regime, trusted_only: bool = True) -> list[str]:
     """Who may speak in a given regime. Hostile-regime strategies are silenced."""
     return [s.key for s in eligible(regime, trusted_only=trusted_only)]
+
+
+@app.get("/strategies/presets", tags=["strategies"])
+def strategy_presets() -> dict:
+    """The catalogued strategy presets borrowed from OpenTerminalUI.
+
+    READ-ONLY CATALOGUE INFORMATION, DELIBERATELY NOT PROPOSALS. None of these
+    has cleared the maturity ladder - the three-year measurement put the best
+    of them at DSR 0.146 on 36 monthly cohorts, which is both below the
+    deflation bar and underpowered. Returning them as actionable setups would
+    be the risk gate relaxing itself, which is the one thing this desk does not
+    do. `/strategies/proposals` is where tradeable output lives.
+
+    What this endpoint is for: seeing what the catalogue declares, what it
+    costs, and why one of the six cannot be tested as written.
+    """
+    rules = preset_rules()
+    if not rules:
+        return {"available": False,
+                "why": "agents/openterminal_ui/upstream is absent - it is "
+                       "gitignored, so re-clone at 8c46cbc",
+                "presets": []}
+    return {
+        "available": True,
+        "maturity": "DRAFT",
+        "maturity_note": "Measured over three years of daily bars, best cell "
+                         "DSR 0.146 against a >0.95 bar, on 36 monthly "
+                         "cohorts against the 60 the estimators need. Not "
+                         "promoted, not tradeable.",
+        "presets": [
+            {
+                "id": r.id, "name": r.name,
+                "stop_pct": r.stop_pct, "take_pct": r.take_pct,
+                "risk_reward": round(r.rr, 3),
+                "cost_r": round(r.cost_r, 4),
+                "cost_note": "round-trip cost as a share of risk; "
+                             "0.422% / stop%, so a tighter stop costs more",
+                "already_implemented_natively": r.already_ours,
+                "testable": r.unsupported is None,
+                "why_not_testable": r.unsupported,
+            }
+            for r in rules.values()
+        ],
+    }
 
 
 @app.get("/strategies/proposals", tags=["strategies"])
