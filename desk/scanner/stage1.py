@@ -81,7 +81,6 @@ FEATURE_COLUMNS = (
     "ret_1d_pct", "ret_5d_pct", "ret_20d_pct",
     "rel_volume", "gap_pct",
     "atr_pct", "atr_pct_rank",
-    "adx_14", "plus_di_14", "minus_di_14",
     "dist_sma20_pct", "dist_sma50_pct", "dist_sma200_pct",
     "pos_52w_pct", "high_52w", "low_52w",
     "swing_low", "swing_low_age", "low_20",
@@ -90,6 +89,12 @@ FEATURE_COLUMNS = (
     "rs_rank",
     "unusual_volume", "unusual_move", "near_52w_high", "extended",
     "flag_count",
+    # APPENDED, not inserted, and the order here IS the frame's column order
+    # (see `out[list(FEATURE_COLUMNS)]` below). New columns go last so an
+    # existing column's position never shifts - nothing in the repo reads this
+    # tuple positionally today, and appending means nothing ever has to.
+    # Trend STRENGTH, which is not trend direction; see the computation site.
+    "adx_14", "plus_di_14", "minus_di_14",
 )
 
 
