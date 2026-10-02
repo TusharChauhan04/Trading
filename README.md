@@ -3,6 +3,11 @@
 NSE/BSE decision-support. Research and risk only — there is no order routing in
 this repository, by design.
 
+> **Picking this up fresh?** Read [docs/HANDOVER.md](docs/HANDOVER.md)
+> first. It carries the methodology, the hard rules, every measured
+> negative, and the open decisions - written so a new agent can continue
+> without re-deriving any of it.
+
 ## Run it
 
 One-time setup — `desk` is an installed package, not a `sys.path` hack:
@@ -302,12 +307,51 @@ one strategy matters: a single rule is idle most of the time by construction.
 
 | Strategy | Speaks in | Status |
 | --- | --- | --- |
-| `donchian_breakout` | trending up | **implemented** - 31 proposals on 2026-09-17 |
+| `donchian_breakout` | trending up | **implemented, DRAFT** - 31 proposals on 2026-09-17; fails the walk-forward on 1,715 sessions (2 of 8 windows both positive and timing-significant) |
 | `bollinger_rsi` | range | **implemented** - 12 proposals, every R:R clearing the 1.5 floor |
 | `supertrend_adx` | trending up/down | catalogued, no adapter |
 | `pairs_trading` | - | **BUG-03 closed, and the strategy with it** - the hedge ratio is now point-in-time, and at full power 278 liquid within-industry pairs show no cointegration beyond chance |
 | `ml_classifier` | - | BUG-04 open: random train/test split leaks the future |
 | `opening_range_breakout` | - | parked: no intraday data exists in the system |
+
+#### H11: the cell does not survive COVID, and DSR believed a window boundary
+
+The store now reaches 2019-10-01 - 1,715 sessions - so the surviving breakout
+cell (donchian, 12% stop / 24% target / 20 sessions / 1% buffer) could finally
+be walked through the March 2020 crash. It had never been tested through one:
+every session in the previous sample came after it.
+
+| windows | pooled | positive | timing-significant | **BOTH** | DSR |
+| --- | --- | --- | --- | --- | --- |
+| 8 | +0.1018R | 6/8 | 2/8 | **2/8** | **0.8654** |
+| 11 | +0.0916R | 7/11 | 5/11 | **5/11** | 0.2268 |
+| *(previous, 1,241 sessions)* | *+0.0446R* | *5/8* | *5/8* | *5/8* | *0.0910* |
+
+**DSR 0.8654 is the best statistic this project has produced, against a 0.95
+bar - and it is an artifact of where the window boundaries fell.** The pooled
+figure more than doubled. Both numbers are flattering and both are wrong.
+
+The pre-registered criterion is the count of windows **both** positive **and**
+timing-significant. It fell from 5/8 to **2/8** (or 5/11). Adding two years of
+data, including a crash, made the cell *worse* on the only measure fixed in
+advance.
+
+Split at 11 windows and the reason is visible:
+
+- **2019-10 → 2020-05, the crash: -0.2029R, permutation p = 1.0000** - the
+  worst window in seven years, and entry timing *worse than shuffling the same
+  signals within the same stocks*.
+- 2020-05 → 2021-01, the recovery: **+0.4898R**, p = 0.0050 - the best.
+
+The 8-window slicing puts the crash and the recovery in one window, which nets
++0.0133R and hides both. DSR cannot see that; it believes whatever slicing it
+is handed. Also telling: on 8 windows **5 of 8 have permutation p >= 0.89**, so
+on longer windows the signal adds nothing over random entry.
+
+The cell stays **DRAFT**. This is the third published positive this project has
+retracted, and the first where the flattering number came from a window
+boundary rather than a thin sample. It is the reason the acceptance criterion
+is a count of windows and not a Sharpe.
 
 #### The main goal, answered
 
