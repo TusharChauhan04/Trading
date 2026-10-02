@@ -1443,6 +1443,95 @@ def plan_today(
 
 # ---------------------------------------------------------------- regime ---
 
+@app.get("/regime/markov", tags=["regime"])
+def regime_markov(day: date | None = None,
+                  lookback: int = Query(default=LOOKBACK_CEILING, ge=260,
+                                        le=LOOKBACK_CEILING)) -> dict:
+    """A two-state Markov volatility regime, fitted on the cross-section.
+
+    REPORTED ALONGSIDE /regime, NOT FEEDING IT. `compute_regime` measures the
+    `volatility` dimension its own way and the daily plan depends on that; a
+    silent substitution here would change trade decisions, which is not what an
+    additional measurement is for. This is extra information for a human.
+
+    THE STATES ARE ECONOMICALLY REAL on this desk's data - high volatility is
+    the falling market, by about a third of a percent a day - which is why it is
+    worth reporting even though it does NOT gate anything. Two attempts to gate
+    the surviving breakout cell on a regime have now failed: a trend proxy (the
+    day-level correlation did not follow the window-level one) and this
+    volatility state (working and failing windows overlap, 0.346 against 0.469).
+
+    `filtered` is the point-in-time probability and the only one safe for a
+    signal; `smoothed` uses the whole sample and is look-ahead by construction.
+
+    BOUNDED BY LOOKBACK_CEILING LIKE EVERY OTHER ENDPOINT, and that is a real
+    constraint rather than a formality: fitting a switching model is MORE
+    expensive than a scan, so the DoS reasoning behind that ceiling applies
+    here with more force, not less. 300 sessions leaves 299 returns against a
+    250-return minimum, which fits but is thin - `n_obs` is reported so a
+    caller can see how thin. A deeper fit over five years is a research task
+    (desk.regime.markov.fit_regimes on a longer panel), not something a web
+    request should be able to ask for.
+    """
+    from desk.regime.markov import available, fit_regimes
+
+    if not available():
+        return {"available": False,
+                "why": "statsmodels is not installed; `pip install "
+                       "statsmodels` (it does not move the pandas pin)"}
+    target = day or _latest_snapshot_day()
+    if target is None:
+        raise HTTPException(404, "no market snapshot on file")
+    store = BarStore(CONFIGS / "bhavcopy", calendar=_calendar_or_none())
+    try:
+        stage0 = run_stage0(store.load_day(target), min_price=20.0,
+                            min_turnover_lacs=100.0)
+        hist = store.history(as_of=target, lookback=lookback,
+                             symbols=stage0.survivors["symbol"].tolist(),
+                             columns=["close"])
+    except StoreError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+    ew = hist.wide_many(["close"])["close"].mean(axis=1)
+    try:
+        fit = fit_regimes(ew)
+    except ValueError as exc:
+        # Non-convergence and too-little-data are REPORTED, never papered over
+        # with a default state - "the model did not fit" and "the market is
+        # calm" are opposite claims.
+        return {"available": True, "fitted": False, "why": str(exc)}
+
+    return {
+        "available": True, "fitted": True, "as_of": str(target),
+        "n_obs": fit.n_obs,
+        "current_high_vol_prob_filtered": round(
+            float(fit.filtered.iloc[-1]), 4),
+        "current_state": ("HIGH-VOL" if float(fit.filtered.iloc[-1]) > 0.5
+                          else "LOW-VOL"),
+        "high_vol": {"ann_vol_pct": round(fit.high_vol_ann_pct, 2),
+                     "mean_pct_per_day": round(fit.high_vol_mean_pct, 4),
+                     "share_of_sessions": round(fit.high_vol_share, 4)},
+        "low_vol": {"ann_vol_pct": round(fit.low_vol_ann_pct, 2),
+                    "mean_pct_per_day": round(fit.low_vol_mean_pct, 4)},
+        "spread_pct_per_day": round(fit.spread_pct, 4),
+        "spread_reliable": fit.spread_reliable,
+        "caveats": [
+            "REPORTED ONLY - this does not feed /regime or the daily plan",
+            "filtered probabilities are point-in-time; smoothed ones use the "
+            "whole sample and must never reach a backtest signal",
+            "tested as a gate on the surviving breakout cell and it does NOT "
+            "separate working from failing walk-forward windows (0.346 vs "
+            "0.469, ranges overlap)",
+        ] + ([] if fit.spread_reliable else [
+            "SPREAD NOT RELIABLE at this sample length - the return spread "
+            "flips sign below ~750 sessions and this fit has "
+            f"{fit.n_obs}. The volatility states are still identified "
+            "correctly; only their directional meaning is unstable. Do not "
+            "read the sign of spread_pct_per_day.",
+        ]),
+    }
+
+
 @app.get("/regime", tags=["regime"])
 def regime_today(day: date | None = None,
                  lookback: int = Query(default=200, ge=60,

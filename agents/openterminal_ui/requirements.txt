@@ -33,6 +33,31 @@
 #                 vibe_trading's 206 India-ready factors already cover
 #                 factor analysis, and they need no database.
 
-# Install nothing from this file without re-running smoke_test.py
-# afterwards, plus the desk's own suite. The pandas pin is load-bearing:
-# every measurement in this project was taken under it.
+# --- INSTALLED 2026-10-02, deliberately, to unblock core/statlab ----------
+# statsmodels==0.15.0  (pulls scipy 1.18.1, patsy, formulaic, narwhals, wrapt,
+#                       interface_meta - 7 packages)
+#
+# WHY: core/statlab/ is 10 modules of real statistics - regime_detection via a
+# Markov switching model, cointegration_analysis, stationarity tests (ADF, KPSS,
+# Hurst) - and every one of them imports statsmodels. Two of them bear on
+# questions this project had closed: the regime gate (closed on a crude
+# 50-day-mean proxy) and pairs_trading (parked on an in-sample hedge-ratio bug).
+#
+# VERIFIED BEFORE AND AFTER, because the pandas pin is load-bearing for every
+# measurement in this project:
+#   `pip install --dry-run statsmodels` first - pandas was NOT in the "would
+#   install" list, so statsmodels accepts 2.3.3 rather than upgrading it.
+#   After installing: pandas 2.3.3 HELD, numpy 2.5.3 unchanged, 1,241 desk
+#   tests pass, this smoke test green, vibe_trading's factors still compute.
+#
+# ONE SIDE EFFECT CHECKED: scipy's arrival means pandas' spearman correlation
+# now works where it previously raised. No desk module calls it - the
+# rank-then-Pearson workaround written earlier lives in a scratchpad script,
+# not in shipped code - so nothing silently changed behaviour.
+#
+# NOTE joblib==1.5.3 is a FREQTRADE constraint and applies to that agent's own
+# venv. It is not installed in the desk venv at all, so it was never at risk
+# here; an earlier version of this note implied otherwise.
+
+# Install nothing else from this file without re-running smoke_test.py
+# afterwards, plus the desk's own suite.
