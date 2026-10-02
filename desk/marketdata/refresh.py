@@ -373,6 +373,7 @@ def backfill_bhavcopy(session: NseSession, start: date, end: date,
         return 0
 
     fetched = failed = unresolved = 0
+    broken: list[date] = []          # archives this parser cannot read
     for i, day in enumerate(todo, 1):
         try:
             print(f"[{i}/{len(todo)}] {day}", end="  ")
@@ -405,6 +406,32 @@ def backfill_bhavcopy(session: NseSession, start: date, end: date,
             # With a calendar saying this day trades, no file IS a failure.
             print(f"  FAILED  {exc}")
             failed += 1
+        except Exception as exc:                      # noqa: BLE001
+            # ONE MALFORMED ARCHIVE MUST NOT ABORT THE RANGE, and before this
+            # clause existed it did. Backfilling 2021-09 to 2023-08 died three
+            # times at the same date, 2022-08-08, with
+            #     UnicodeDecodeError: 'utf-8' codec can't decode byte 0x90
+            # because NSE serves something for that day that is not the CSV
+            # the parser expects. The exception escaped both handlers above,
+            # killed the process, and left 244 of 522 days fetched - which
+            # looked exactly like the run being interrupted, and was
+            # misdiagnosed as that twice.
+            #
+            # Counted as a failure so the exit code still refuses to report
+            # success, and NAMED so a genuinely corrupt archive is visible
+            # rather than averaged into "some days did not work".
+            print(f"  FAILED  unreadable archive: "
+                  f"{type(exc).__name__}: {str(exc)[:90]}")
+            failed += 1
+            broken.append(day)
+
+    if broken:
+        print(f"\n{len(broken)} day(s) returned an archive this parser could "
+              f"not read: {', '.join(str(d) for d in broken[:12])}"
+              + (" ..." if len(broken) > 12 else ""))
+        print("Those are skipped, not retried - rerunning fetches them again "
+              "and they will fail again. A gap of a few sessions is visible "
+              "to Coverage and is a caveat on any scan that spans it.")
 
     print(f"\nfetched {fetched} day(s)"
           + (f", {unresolved} unresolved" if unresolved else "")
