@@ -356,6 +356,46 @@ non-significant p-value from a one-year window is not evidence of absence.
 `/research/pairs` is capped at `LOOKBACK_CEILING` = 300 and therefore cannot
 reach full power - it says so in every response.
 
+#### And the univariate version of the same question
+
+Pairs are the two-name form of mean reversion. The one-name form was measured
+too, because `bollinger_rsi` is a mean-reversion rule and the question is
+whether this universe contains any mean reversion at all.
+
+The upstream tool for it calls a Hurst exponent below 0.45 mean-reverting. That
+estimator is biased downward at finite sample length, so the threshold sits
+*above* the null's median: simulated over 20,000 random walks per length, **61%
+of pure random walks score below 0.45** at n=250. It also cannot detect a
+trend - a walk with drift 0.20 per bar scores 0.409 where a driftless walk
+scores 0.410 - so the "trending" half of the label fires at random. And its
+failure path returns 0.5, which its own interpretation reads as "random walk",
+while a constant price stretch produces `log(0)` and ends up at 0.0, read as
+the most strongly mean-reverting series on the screen. A circuit-locked stock
+sorts to the top.
+
+`desk/research/stationarity.py` replaces the threshold with a null calibrated
+at the actual sample length, verified through its own code path at a 5.1-6.0%
+false-positive rate and checked robust to fat tails, GARCH volatility
+clustering and this desk's measured two-state volatility. On 1,490 survivors:
+
+| Window | p < 0.05 | vs the 5% null | upstream's threshold |
+| --- | --- | --- | --- |
+| 250 | 52/1490, 3.49% | z = -2.67 | 936/1490, 62.8% |
+| 1240 | 66/1490, 4.43% | z = -1.01 | 552/1490, 37.0% |
+
+**At or below the null at both windows**, with the sign of the excess flipping
+by window. There is no univariate mean reversion here either, and the fixed
+threshold would have offered 936 candidates.
+
+The tool is working, and the evidence is what it *does* surface: the four most
+mean-reverting instruments are LIQUID, LIQUIDBEES, LIQUIDETF and LIQUIDIETF -
+overnight money-market ETFs. A cash fund that accrues steadily genuinely is not
+a random walk. A screen that missed them would be the broken one.
+
+Both screens share a power limit worth stating once: slow mean reversion is
+hard to detect. At 250 observations a 4-day half-life is found 96% of the time,
+an 11-day one 41%, a 23-day one 14%, and a 69-day one not at all.
+
 Three outcomes are reported separately and never conflated: a strategy that
 **proposed** (possibly nothing), one **silenced** by the regime, and one
 **unimplemented** so it could not be asked. Asking for an unimplemented
