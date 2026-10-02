@@ -140,10 +140,21 @@ risks:
      '\"id\"', which matches once per preset AND once per indicator inside
      it. There are 6, and donchian_breakout and a Bollinger variant
      duplicate what the desk already has - so the real gain is 4."
-  - "THREE MODULES FABRICATE DATA AND ALL THREE LOOK REAL FROM THE OUTSIDE.
+  - "FOUR MODULES FABRICATE DATA AND ALL FOUR LOOK REAL FROM THE OUTSIDE.
      None was findable from its name, its route, or the README - only by
      reading the file. This is the single strongest argument for the
-     read-before-import rule: 3 of the ~20 modules probed invent data.
+     read-before-import rule: 4 of the ~25 modules probed invent data.
+     The fourth, services/stress_test_service.py, was found while reading
+     agent/tools/risk_tools.py and is the ONLY one that labels itself -
+     the tool returns quality='synthetic' with an explicit note. Its note
+     still understates it: it says sensitivities are 'sector presets plus
+     deterministic per-ticker jitter', and in fact equity_beta,
+     rate_sensitivity, commodity_beta, fx_exposure and credit_sensitivity
+     are all preset + jitter(sha256(ticker)[i]), while for an unknown
+     ticker the SECTOR comes from _infer_sector_from_hash - so both halves
+     of the beta are a function of how the name is spelled. A risk number
+     derived from a ticker's spelling is worse than no risk number. All
+     four are enforced by desk/tests/test_upstream_quarantine.py.
 
        core/historical_data_service.py is THE WORST AND THE QUIETEST.
          fetch_daily_ohlcv() calls _synthetic_ohlcv() when the real provider

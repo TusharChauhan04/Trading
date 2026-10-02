@@ -42,7 +42,25 @@ QUARANTINED = {
     "backend/services/sector_rotation.py": (
         "_generate_mock_rrg",
         "returns invented rotation data on a failed download. At least it "
-        "prints a warning, which makes it the least bad of the three.",
+        "prints a warning, which makes it the least bad of the four.",
+    ),
+    "backend/services/stress_test_service.py": (
+        # The marker is the hash-derived SECTOR inference, not "sha256" -
+        # hashing is legitimate elsewhere in that file and in our own
+        # journal, which digests records for integrity.
+        "_infer_sector_from_hash",
+        "derives every factor sensitivity from a sha256 digest of the "
+        "TICKER STRING - equity_beta, rate_sensitivity, commodity_beta, "
+        "fx_exposure and credit_sensitivity are a sector preset plus "
+        "jitter(digest[i]), and for an unknown ticker the SECTOR itself "
+        "comes from _infer_sector_from_hash. So both halves of the beta "
+        "are a function of the name. It is the only one of the four that "
+        "labels itself - the tool returns quality='synthetic' with a note "
+        "- but the note says 'sector presets plus deterministic per-ticker "
+        "jitter' and omits that the sector can be invented too. Honest "
+        "labelling is why this is the least dangerous of the four and not "
+        "a reason to import it: a stress test is a risk number, and a risk "
+        "number derived from a ticker's spelling is worse than none.",
     ),
 }
 
