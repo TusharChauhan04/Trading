@@ -68,7 +68,27 @@ from desk.scanner.stage1 import REQUIRED_BARS, run_stage1
 from desk.strategies.adapters import ADAPTERS, propose
 from desk.strategies.catalog import BY_KEY
 
-__all__ = ["run_strategy_backtest", "walk_forward", "WalkForwardResult",
+#: The sibling harness, re-exported so there is ONE place to look for "walk
+#: something forward" rather than two that must be known about separately.
+#:
+#: WHICH ONE TO USE. `walk_forward` here drives a CATALOGUED strategy through
+#: the desk's whole funnel - Stage 0, Stage 1, regime routing, the risk engine,
+#: structural stops. `walk_forward_preset` drives a fixed-percentage preset cell
+#: over a price panel, because that is what the surviving configuration actually
+#: is, and forcing it through the funnel would change the thing being tested.
+#:
+#: The preset version also asks MORE per window: it runs the permutation test
+#: inside each window, which is what caught the 12%/20-bar cell. Its full-sample
+#: permutation p was 0.0033, yet window by window it was significant in only 2
+#: of 4 - the edge sat almost entirely in Sep 2023 to Jun 2024. A whole-sample
+#: permutation cannot see that, because shuffling timing across the whole sample
+#: still loses to a concentrated edge.
+from desk.backtest.preset_wf import (            # noqa: E402
+    PresetWalkForward, PresetWindow, walk_forward_preset,
+)
+
+__all__ = ["PresetWalkForward", "PresetWindow", "run_strategy_backtest",
+           "walk_forward", "walk_forward_preset", "WalkForwardResult",
            "WindowResult"]
 
 
