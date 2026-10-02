@@ -447,6 +447,71 @@ def backfill_bhavcopy(session: NseSession, start: date, end: date,
     return 1 if failed else 0
 
 
+def refresh_intraday(symbols, out_dir: Path, *, interval: str = "5m",
+                     days: int = 45, min_interval: float = 1.6) -> int:
+    """Fetch intraday bars and write one parquet per session.
+
+    WHY THIS COMMAND MATTERS MORE THAN TODAY'S DATA. Yahoo serves at most about
+    31 sessions of 5-minute history and REFUSES older windows outright - walking
+    backwards in chunks returns HTTP 422 for every window but the most recent.
+    So the sample cannot be bought with patience at fetch time; it has to be
+    accumulated. Running this daily means the desk owns history the source will
+    never hand over in bulk, and the intraday 1:2 measurement in
+    desk/backtest/intraday.py rests on 31 sessions today precisely because
+    nothing was accumulating until now.
+
+    Sessions already on disk are MERGED rather than replaced, so a rerun that
+    adds symbols does not discard the ones already fetched, and an interrupted
+    run resumes. A session file is written only if at least one symbol returned
+    bars for it - an empty file would be indistinguishable from a holiday.
+    """
+    from desk.marketdata.sources.yahoo import (
+        YahooSession, session_quality,
+    )
+
+    out = Path(out_dir) / interval
+    out.mkdir(parents=True, exist_ok=True)
+    sess = YahooSession(min_interval=min_interval)
+    frames, failed = [], []
+    for i, sym in enumerate(symbols, 1):
+        try:
+            frames.append(sess.fetch(sym, interval=interval, days=days))
+        except RateLimited as exc:
+            print(f"[{i}/{len(symbols)}] RATE LIMITED at {sym}: {exc}")
+            print("stopping rather than retrying - raise --min-interval")
+            break
+        except SourceError as exc:
+            failed.append(sym)
+            print(f"[{i}/{len(symbols)}] {sym}: {exc}")
+    if not frames:
+        print("nothing fetched")
+        return 1
+
+    fresh = pd.concat(frames, ignore_index=True)
+    written = 0
+    for day, grp in fresh.groupby("session"):
+        path = out / f"{day}.parquet"
+        block = grp.drop(columns=["session"])
+        if path.is_file():
+            try:
+                old = pd.read_parquet(path)
+                keep = old[~old["symbol"].isin(set(block["symbol"]))]
+                block = pd.concat([keep, block], ignore_index=True)
+            except Exception as exc:              # noqa: BLE001
+                print(f"  {path.name} unreadable ({exc}); rewriting")
+        block.sort_values(["symbol", "timestamp"]).to_parquet(path, index=False)
+        written += 1
+
+    q = session_quality(fresh, expected=0)
+    print(f"{len(fresh):,} bars, {fresh['symbol'].nunique()} symbols, "
+          f"{written} session files under {out}")
+    print(f"sessions {q['session'].min()} -> {q['session'].max()}")
+    if failed:
+        print(f"{len(failed)} symbols returned nothing: "
+              f"{', '.join(failed[:12])}{' ...' if len(failed) > 12 else ''}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="desk.marketdata.refresh",
                                 description=__doc__.split("\n")[0])
@@ -505,6 +570,25 @@ def main(argv: list[str] | None = None) -> int:
     x.add_argument("--out-dir", type=Path, default=CONFIGS / "crosscheck")
     x.add_argument("--isin", type=Path, default=CONFIGS / "isin_map.json")
 
+    i = sub.add_parser(
+        "intraday",
+        help="intraday bars from Yahoo - the only intraday source, and the "
+             "only history that cannot be backfilled later")
+    i.add_argument("--interval", default="5m",
+                   help="5m, 15m or 1h. 5m/15m reach ~31 sessions; 1h ~245")
+    i.add_argument("--days", type=int, default=45,
+                   help="calendar days back. Clamped to the measured "
+                        "per-request maximum for the interval")
+    i.add_argument("--top", type=int, default=40,
+                   help="how many of the most liquid Stage 0 survivors to "
+                        "fetch. One request each, throttled")
+    i.add_argument("--symbols", nargs="+",
+                   help="explicit symbols instead of the liquidity ranking")
+    i.add_argument("--out-dir", type=Path, default=CONFIGS / "intraday")
+    i.add_argument("--yahoo-interval", type=float, default=1.6,
+                   dest="yahoo_min_interval",
+                   help="seconds between requests. Below ~1.5 risks a 429")
+
     args = p.parse_args(argv)
     interval = getattr(args, "min_interval", 1.0)
     session = NseSession(min_interval=interval)
@@ -527,6 +611,24 @@ def main(argv: list[str] | None = None) -> int:
                 print("bhavcopy needs either --date or --from/--to")
                 return 1
             return refresh_bhavcopy(session, args.date, args.out_dir)
+        if args.what == "intraday":
+            syms = args.symbols
+            if not syms:
+                from desk.scanner.stage0 import run_stage0
+                from desk.store.bars import BarStore
+                store = BarStore(CONFIGS / "bhavcopy")
+                days_on_disk = sorted(store.available_days())
+                if not days_on_disk:
+                    print("no bhavcopy on disk to rank liquidity from; pass "
+                          "--symbols")
+                    return 1
+                s0 = run_stage0(store.load_day(days_on_disk[-1]),
+                                min_price=50.0, min_turnover_lacs=500.0)
+                syms = s0.survivors.nlargest(
+                    args.top, "turnover_lacs")["symbol"].tolist()
+            return refresh_intraday(
+                syms, args.out_dir, interval=args.interval, days=args.days,
+                min_interval=args.yahoo_min_interval)
         if args.what == "crosscheck":
             day = args.date
             if day is None:

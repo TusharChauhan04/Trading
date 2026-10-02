@@ -70,3 +70,11 @@ configs/crosscheck/
 # machines - committing it would merge two machines' spend into one total.
 configs/llm/
 *.ledger.jsonl
+
+# Intraday bars, same reasoning as configs/bhavcopy/: market data is
+# refetched, not versioned. Unlike the daily store this one CANNOT be
+# refetched for past dates - Yahoo serves only ~31 sessions of 5-minute
+# history and refuses older windows - so these files are the only copy
+# and a deletion is permanent. Back them up outside git if a measurement
+# depends on them.
+configs/intraday/

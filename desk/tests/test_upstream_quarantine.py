@@ -15,6 +15,7 @@ becomes folklore.
 
 from __future__ import annotations
 
+import ast
 import pathlib
 import re
 
@@ -75,6 +76,38 @@ def _desk_sources() -> list[pathlib.Path]:
             if "__pycache__" not in p.parts]
 
 
+def _string_literal_lines(text: str) -> set[int]:
+    """Every 1-based line number occupied by a STRING LITERAL.
+
+    WHY THIS IS NEEDED RATHER THAN A startswith CHECK. The first version of
+    this test skipped a line beginning with a quote, which catches the
+    OPENING line of a docstring and nothing else. A multi-line docstring
+    explaining why a module is quarantined - which is exactly what
+    desk/marketdata/sources/yahoo.py contains, since it borrows that
+    module's URL shape and refuses its fallback - has continuation lines
+    starting with ordinary prose, and those were flagged as live code.
+
+    EVERY string literal, not only docstrings, and the second failure proved
+    why: desk/registry/fleet.py carries the dict value "download failure
+    (_generate_mock_rrg) - never use", which is the quarantine recorded as
+    DATA. A name inside a string cannot be called; a real use is an import, an
+    attribute or a call, and those are what survive this filter.
+
+    Parsing is the precise answer: documenting a quarantine is the point of
+    the quarantine, and only executable code can actually invoke the thing.
+    """
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return set()
+    out: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            out.update(range(node.lineno,
+                             (node.end_lineno or node.lineno) + 1))
+    return out
+
+
 @pytest.mark.parametrize("module", sorted(QUARANTINED))
 def test_no_desk_module_imports_a_fabricating_module(module: str) -> None:
     """The quarantine, enforced.
@@ -97,14 +130,16 @@ def test_no_desk_module_imports_a_fabricating_module(module: str) -> None:
     for src in _desk_sources():
         if src.name == pathlib.Path(__file__).name:
             continue                 # this file names them all, deliberately
-        for i, line in enumerate(src.read_text(encoding="utf-8",
-                                               errors="ignore").splitlines(), 1):
+        text = src.read_text(encoding="utf-8", errors="ignore")
+        skip = _string_literal_lines(text)
+        for i, line in enumerate(text.splitlines(), 1):
             if not any(p.search(line) for p in patterns):
                 continue
             stripped = line.strip()
-            # A mention in a comment or docstring is the POINT - the quarantine
-            # is documented in the code it applies to. Only live code fails.
-            if stripped.startswith(("#", '"', "'", "*", "-")):
+            # A mention in a comment or docstring is the POINT - the
+            # quarantine is documented in the code it applies to, and
+            # yahoo.py documents it at length. Only live code fails.
+            if i in skip or stripped.startswith("#"):
                 continue
             offenders.append(f"{src.relative_to(ROOT)}:{i}: {stripped[:80]}")
     assert not offenders, (

@@ -1445,6 +1445,109 @@ def plan_today(
 
 # ---------------------------------------------------------------- regime ---
 
+@app.get("/research/intraday-rr", tags=["research"])
+def research_intraday_rr(stop_pct: float = Query(default=0.5, gt=0.0, le=5.0),
+                         rr: float = Query(default=2.0, gt=0.0, le=5.0),
+                         symbols: int = Query(default=8, ge=1, le=40),
+                         interval: str = "5m") -> dict:
+    """Is a 1:2 target reachable inside one session? Re-runnable, and no.
+
+    THE PROJECT'S MAIN GOAL, ANSWERED AND NEGATIVE. Measured on 84,090 trades
+    across 40 names and 31 sessions of 5-minute bars: at a 0.5% stop the win
+    rate is 16.2% against a 61.5% breakeven, and GROSS expectancy is negative
+    at every stop width tried. The required round-trip cost comes out NEGATIVE,
+    meaning no broker and no slippage assumption rescues it - the payoff
+    structure loses before anyone charges for it.
+
+    The reason is geometry, not cost: the median session range is 2.18% of the
+    open, and a 1:2 structure needs the price to travel twice the stop in
+    favour while never travelling once the stop against. Both do not fit.
+    Tighten the stop below intra-session noise and it is taken out (63.1% stop
+    rate at 0.25%); widen it so the stop clears the noise and the 2x target
+    exceeds the whole session (90.7% time out at a 2% stop).
+
+    WHY IT IS AN ENDPOINT RATHER THAN A ONE-OFF NUMBER. The 5-minute sample
+    cannot be deepened by fetching - Yahoo refuses windows older than ~31
+    sessions - so it deepens only by accumulating, via
+    `python -m desk.marketdata.refresh intraday` run daily. This exists to be
+    re-run against a longer history, and to let `rr` be moved: 1:1 is a
+    different structure and this same lattice measures it.
+
+    Bounded to `symbols` names because the lattice is O(bars x hold) per
+    symbol-session and the full 40-name set takes about a minute - too long for
+    a request, and the answer does not change with the 9th name.
+    """
+    from desk.backtest.intraday import (
+        breakeven_win_rate, session_outcomes,
+    )
+
+    root = CONFIGS / "intraday" / interval
+    files = sorted(root.glob("*.parquet")) if root.is_dir() else []
+    if not files:
+        return {"available": False,
+                "why": f"no intraday bars under {root}. Fetch them with "
+                       f"'python -m desk.marketdata.refresh intraday "
+                       f"--interval {interval}'"}
+
+    frames = []
+    for f in files:
+        try:
+            frames.append(pd.read_parquet(f))
+        except Exception:                               # noqa: BLE001
+            continue
+    if not frames:
+        return {"available": False,
+                "why": f"every parquet under {root} was unreadable"}
+    bars = pd.concat(frames, ignore_index=True)
+    bars["session"] = bars["timestamp"].dt.date
+
+    # The most-covered symbols, so a thinly fetched name does not dominate.
+    counts = bars["symbol"].value_counts()
+    keep = list(counts.head(symbols).index)
+    bars = bars[bars["symbol"].isin(keep)]
+
+    out = session_outcomes(bars, stop_pct=stop_pct, rr=rr, max_bars=73)
+    be = breakeven_win_rate(stop_pct=stop_pct, rr=rr)
+    return {
+        "available": True, "interval": interval,
+        "sessions": int(bars["session"].nunique()),
+        "symbols": len(keep),
+        "stop_pct": stop_pct, "target_pct": round(stop_pct * rr, 4), "rr": rr,
+        "trades": out.trades,
+        "win_rate": None if out.win_rate is None else round(out.win_rate, 4),
+        "stopped_rate": round(out.stopped / out.trades, 4) if out.trades else None,
+        "timeout_rate": round(out.timed_out / out.trades, 4) if out.trades else None,
+        "gross_r": None if out.gross_r is None else round(out.gross_r, 4),
+        "cost_r": round(out.cost_r(), 4),
+        "net_r": None if out.net_r() is None else round(out.net_r(), 4),
+        "breakeven_win_rate": round(be, 4),
+        "required_round_trip_pct": round(out.required_round_trip_pct(), 4),
+        "statutory_round_trip_pct": 0.1222,
+        "viable": bool((out.net_r() or -1.0) > 0),
+        "caveats": [
+            "GROSS is the number to read, not net. If gross_r is negative the "
+            "structure loses before costs, so required_round_trip_pct comes "
+            "out negative - you would have to be paid to trade, and no broker "
+            "or slippage assumption changes the answer",
+            "entry is UNCONDITIONAL - every bar - so this measures the payoff "
+            "STRUCTURE, not a signal. A signal could select favourable bars, "
+            "but it would have to add more than the gross shortfall AND cover "
+            "cost_r on top",
+            "trades are confined to one session; holding across the overnight "
+            "gap is a different trade with different risk",
+            "a bar touching both levels is scored as the STOP, the "
+            "conservative reading. Measured, the optimistic convention moves "
+            "the 0.5% win rate from 16.2% to 16.3% - it is not what makes "
+            "this negative",
+            "the last reliably traded 5-minute bar is 15:15: Yahoo returns "
+            "15:20 and 15:25 as null on every symbol and day measured",
+            "31 sessions is a small calendar however many trades it yields. "
+            "A wider-range regime would move these numbers; re-run as the "
+            "daily refresh deepens the history",
+        ],
+    }
+
+
 @app.get("/indicators/{symbol}", tags=["indicators"])
 def indicators_for(symbol: str, day: date | None = None,
                    lookback: int = Query(default=LOOKBACK_CEILING, ge=60,
