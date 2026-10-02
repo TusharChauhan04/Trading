@@ -305,9 +305,56 @@ one strategy matters: a single rule is idle most of the time by construction.
 | `donchian_breakout` | trending up | **implemented** - 31 proposals on 2026-09-17 |
 | `bollinger_rsi` | range | **implemented** - 12 proposals, every R:R clearing the 1.5 floor |
 | `supertrend_adx` | trending up/down | catalogued, no adapter |
-| `pairs_trading` | - | BUG-03 open: hedge ratio fitted on the whole sample |
+| `pairs_trading` | - | **BUG-03 closed, and the strategy with it** - the hedge ratio is now point-in-time, and at full power 278 liquid within-industry pairs show no cointegration beyond chance |
 | `ml_classifier` | - | BUG-04 open: random train/test split leaks the future |
 | `opening_range_breakout` | - | parked: no intraday data exists in the system |
+
+#### What closing BUG-03 settled
+
+BUG-03 was "the hedge ratio is fitted on the whole sample, so every backtested
+spread is look-ahead", and it parked `pairs_trading` for the whole project. It
+is fixed in `desk/research/cointegration.py` - every estimate comes from a
+trailing window ending at the bar being scored. Measured against the in-sample
+version on six liquid pairs over five years, the bug was worth **+2.418
+percentage points per round trip, about a 10x inflation**.
+
+With the bug gone the real question could be asked, on 278 within-industry
+pairs (the six most liquid names per classified industry) over 1,240 sessions:
+
+| Window | Passed, FDR 10% | Min p | p < 0.05 | P(that many \| nothing real) |
+| --- | --- | --- | --- | --- |
+| 300 | 0 | 0.00604 | 19/278 | 0.106 |
+| 600 | 1 | 0.00021 | 15/278 | 0.419 |
+| 1200 | 2 | 0.00026 | 18/278 | 0.160 |
+
+**There is nothing there**, and it does not rest on the pass counts. The
+p-value distribution *is* the null at every window (median 0.49-0.54, and the
+count under 0.05 is what chance produces). The survivors are not stable -
+M&M/MARUTI passes at 600 sessions and fails at 1,200, and neither 1,200-bar
+survivor passes at 600. Their hedge ratios are not economic: 0.175 between M&M
+and Maruti is barely a hedge, and TATACHEM/NAVINFLUOR comes out *negative*,
+which means going long both legs.
+
+The seductive part is why this needed a correction rather than a glance: at 300
+sessions the best raw p-values are exactly the pairs a human would name -
+ULTRACEMCO/AMBUJACEM, ULTRACEMCO/ACC, M&M/MARUTI, LT/NCC, DRREDDY/DIVISLAB.
+The list looks like domain knowledge confirming itself. The minimum p across
+278 tests was 0.0060 where chance alone gives 0.0036, so the top pair was *less*
+extreme than noise would predict.
+
+Two limits on that claim, both narrow and both real: 278 pairs is not the
+499,500 the universe allows, so cross-sector and illiquid pairs were never
+tested; and cointegration is not the only basis for a pairs trade - distance
+and ratio-z-score methods do not require it. What is settled is the version
+BUG-03 was blocking.
+
+Separately measured and recorded in the module, because it cuts the other way:
+Engle-Granger's **power** depends on the window and the hedge ratio wants the
+opposite. On a pair cointegrated by construction with a slow spread, 250
+sessions detects it only **50%** of the time while 600 detects it always. So a
+non-significant p-value from a one-year window is not evidence of absence.
+`/research/pairs` is capped at `LOOKBACK_CEILING` = 300 and therefore cannot
+reach full power - it says so in every response.
 
 Three outcomes are reported separately and never conflated: a strategy that
 **proposed** (possibly nothing), one **silenced** by the regime, and one
