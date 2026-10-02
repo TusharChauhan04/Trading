@@ -1443,6 +1443,170 @@ def plan_today(
 
 # ---------------------------------------------------------------- regime ---
 
+@app.get("/research/pairs", tags=["research"])
+def research_pairs(day: date | None = None,
+                   per_industry: int = Query(default=6, ge=2, le=12),
+                   fdr: float = Query(default=0.10, gt=0.0, le=0.5),
+                   lookback: int = Query(default=LOOKBACK_CEILING, ge=140,
+                                         le=LOOKBACK_CEILING)) -> dict:
+    """Cointegrated pairs, screened within industry and FDR-corrected.
+
+    NOT A TRADE LIST. BUG-03 - the hedge ratio fitted on the whole sample - is
+    why `pairs_trading` has been parked at P2 for the whole project, and it is
+    fixed in `desk.research.cointegration` but the STRATEGY has never been
+    walk-forward tested. This endpoint reports which pairs are statistically
+    related today. It does not say a pairs trade makes money, and nothing in
+    the repository currently says that.
+
+    TWO HONEST LIMITATIONS, both reported in the response rather than hidden.
+
+    1. THE WINDOW IS TOO SHORT FOR FULL POWER. LOOKBACK_CEILING is 300 sessions
+       and the measured full-power window for Engle-Granger is 600: at 250 bars
+       a slow-reverting pair (half-life ~11 days) is detected only about half
+       the time. So pairs MISSING from this list are not evidence against them.
+       A full-power screen is a research task on a longer panel
+       (`screen_pairs(..., window=COINT_TEST_WINDOW)`), not a web request - the
+       ceiling exists for DoS reasons that apply more to this endpoint than to
+       a plain scan, because each pair costs an ADF regression.
+
+    2. ONLY WITHIN-INDUSTRY PAIRS, and only the most liquid few per industry.
+       Screening the whole survivor set would be ~495,000 tests; even
+       within-industry across all survivors is ~24,000, which is a minute of
+       CPU per request. `per_industry` most-liquid names gives a few hundred
+       tests. The restriction is also economically right - a pair should share a
+       driver, not merely a p-value - but it IS a restriction, and a real
+       cross-sector relationship cannot appear here.
+
+    `q_value` is the Benjamini-Hochberg adjusted p-value and `passes` is the
+    decision after correction. Read those, never the raw `p_value`: at p < 0.05
+    roughly one test in twenty passes on noise, and the response reports how
+    many would have.
+    """
+    from desk.research.cointegration import (
+        COINT_TEST_WINDOW, available, screen_pairs,
+    )
+
+    if not available():
+        return {"available": False,
+                "why": "statsmodels is not installed; `pip install "
+                       "statsmodels` (it does not move the pandas pin)"}
+    target = day or _latest_snapshot_day()
+    if target is None:
+        raise HTTPException(404, "no market snapshot on file")
+
+    sectors = _sector_map()
+    if sectors is None:
+        return {"available": True, "screened": False,
+                "why": "no sector classification on file (configs/sectors.json"
+                       "), and this screen is within-industry by design - see "
+                       "the endpoint docstring"}
+
+    store = BarStore(CONFIGS / "bhavcopy", calendar=_calendar_or_none())
+    try:
+        stage0 = run_stage0(store.load_day(target), min_price=20.0,
+                            min_turnover_lacs=100.0)
+        surv = stage0.survivors
+        hist = store.history(as_of=target, lookback=lookback,
+                             symbols=surv["symbol"].tolist(),
+                             columns=["close"])
+    except StoreError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+    closes = hist.wide_many(["close"])["close"]
+
+    # Candidates: the `per_industry` most liquid names in each industry. Liquid
+    # first because a pair trade needs BOTH legs executable - a beautiful
+    # cointegration on an untradeable second leg is not a trade.
+    turnover = dict(zip(surv["symbol"], surv.get(
+        "turnover_lacs", pd.Series(0.0, index=surv.index))))
+    buckets: dict[str, list[str]] = {}
+    for sym in closes.columns:
+        ind = sectors.sector_for(sym)
+        if ind:
+            buckets.setdefault(ind, []).append(sym)
+
+    candidates: list[tuple[str, str]] = []
+    for ind, syms in sorted(buckets.items()):
+        top = sorted(syms, key=lambda s: -float(turnover.get(s, 0.0)))[
+            :per_industry]
+        for i in range(len(top)):
+            for j in range(i + 1, len(top)):
+                candidates.append((top[i], top[j]))
+
+    if not candidates:
+        return {"available": True, "screened": False,
+                "why": "no industry had two classified, liquid survivors"}
+
+    classified, asked = sectors.coverage(list(closes.columns))
+
+    res = screen_pairs(closes, candidates, as_of=target, window=lookback,
+                       fdr=fdr)
+
+    def _row(r) -> dict:
+        return {
+            "y": r["y"], "x": r["x"],
+            "industry": sectors.sector_for(r["y"]),
+            "p_value": None if r["pvalue"] is None else round(
+                float(r["pvalue"]), 5),
+            "q_value": None if r.get("qvalue") is None else round(
+                float(r["qvalue"]), 5),
+            "passes": bool(r["passes"]),
+            "hedge_ratio": None if r["beta"] is None else round(
+                float(r["beta"]), 4),
+            "half_life_days": None if r["half_life"] is None else round(
+                float(r["half_life"]), 1),
+            "zscore_now": None if r.get("zscore") is None else round(
+                float(r["zscore"]), 3),
+            "n_obs": int(r["n_obs"]),
+            "reason": r["reason"] or None,
+        }
+
+    passed = [_row(r) for _, r in res.pairs[res.pairs["passes"]].iterrows()]
+    near = [_row(r) for _, r in res.pairs[
+        ~res.pairs["passes"] & res.pairs["pvalue"].notna()].head(15).iterrows()]
+
+    return {
+        "available": True, "screened": True, "as_of": str(target),
+        "window_sessions": lookback,
+        "symbols_classified": classified,
+        "symbols_considered": asked,
+        "pairs_tested": res.n_tested,
+        "pairs_passed": res.n_passed,
+        "fdr": fdr,
+        "expected_false_positives_without_correction": round(
+            res.expected_false_positives_uncorrected, 1),
+        "passed": passed,
+        "best_rejected": near,
+        "caveats": [
+            "MEASURED AND EMPTY: the same screen run at full power (600 and "
+            "1200 sessions) produces a p-value distribution indistinguishable "
+            "from no pair being cointegrated at all, the survivors change "
+            "identity between windows, and their hedge ratios are not "
+            "economic (0.175, and one NEGATIVE). Expect nothing here, and "
+            "treat anything that does appear as a chance finding until it "
+            "survives a longer window - see desk.research.cointegration",
+            "NOT A TRADE LIST - the pairs strategy has never been walk-forward "
+            "tested on this desk; this says only which pairs are related",
+            f"UNDERPOWERED WINDOW: {lookback} sessions against a measured "
+            f"full-power {COINT_TEST_WINDOW}. At ~250 bars a slow-reverting "
+            "pair is found only about half the time, so absence from this list "
+            "is not evidence against a pair",
+            f"industry classification covered {classified}/{asked} "
+            "survivors; unclassified names were not screened at all",
+            "WITHIN-INDUSTRY ONLY, top "
+            f"{per_industry} by turnover - a real cross-sector relationship "
+            "cannot appear here",
+            "read q_value and passes, never p_value: "
+            f"{res.n_tested} tests would throw up about "
+            f"{res.expected_false_positives_uncorrected:.0f} false positives "
+            "at an uncorrected p < 0.05",
+            "every estimate is point-in-time (trailing window ending at "
+            "as_of), which is the BUG-03 fix - upstream fits the hedge ratio "
+            "on the whole sample",
+        ],
+    }
+
+
 @app.get("/regime/markov", tags=["regime"])
 def regime_markov(day: date | None = None,
                   lookback: int = Query(default=LOOKBACK_CEILING, ge=260,
