@@ -51,7 +51,9 @@ from desk.settings import DEFAULT_RISK_REWARD
 from desk.plan.models import PlanTrade
 from desk.risk.engine import Portfolio, RiskConfig, Sizing, size_position
 from desk.scanner.stage1 import Stage1Result
+from desk.marketdata.sectors import SectorMap
 from desk.research.events import EventCalendar
+from desk.risk.clusters import ClusterMap
 from desk.scanner.stage2 import Stage2Result
 
 __all__ = ["Stage4Result", "Setup", "run_stage4", "propose_setup"]
@@ -324,6 +326,8 @@ def run_stage4(
     max_trades: int = 3,
     candidates: int = 20,
     events: "EventCalendar | None" = None,
+    sectors: "SectorMap | None" = None,
+    clusters: "ClusterMap | None" = None,
     holding_days: int = 5,
     stop_atrs: float = 2.0,
     target_r: float = DEFAULT_RISK_REWARD,
@@ -343,6 +347,23 @@ def run_stage4(
     Omitting it is allowed and is declared in `unavailable` - a scan that did
     not check for earnings must not read like one that checked and found none.
 
+    `sectors` AND `clusters` FEED THE TWO CONCENTRATION CAPS, and until they
+    were threaded through both caps were running on their defaults with real
+    consequences rather than merely being idle:
+
+      - `sector` defaulted to "UNKNOWN" for every candidate, so
+        `sector_exposure("UNKNOWN")` summed the WHOLE BOOK. The 30% sector cap
+        was therefore acting as a total gross exposure cap - two full-size
+        15% positions reached it and the third was rejected reading "UNKNOWN
+        would reach 45.0%, cap is 30%". A cap that says sector and means
+        something else is worse than one that does not run.
+      - `corr_group` defaulted to None, which the engine correctly treats as
+        "no claim, no gate" and records in `checks_skipped`. That one was
+        honestly inert.
+
+    Both are optional and their absence is declared, because a scan that could
+    not see sectors must not read like one that checked concentration.
+
     `candidates` (default 20) bounds how far down the ranking Stage 4 will
     look; `max_trades` (default 3) bounds how many approvals it will return.
     They are separate numbers on purpose: the engine rejects most names, so
@@ -357,6 +378,16 @@ def run_stage4(
     """
     pf = portfolio or Portfolio()
     result = Stage4Result(as_of=stage2.as_of)
+    if sectors is None:
+        result.unavailable.append(
+            "No sector classification supplied, so every candidate is sized "
+            "as sector UNKNOWN and the sector cap degenerates into a cap on "
+            "total exposure. Per-sector concentration was NOT checked.")
+    if clusters is None or not clusters.labels:
+        result.unavailable.append(
+            "No correlation clusters supplied, so the correlated-exposure cap "
+            "did not run on any candidate - names that move together were "
+            "not recognised as one bet.")
     if events is None:
         result.unavailable.extend(UNAVAILABLE_NO_CALENDAR)
     elif not stage2.ranked.empty:
@@ -409,9 +440,18 @@ def run_stage4(
                 continue
 
         result.considered += 1
+        # A name with no classification keeps the "UNKNOWN" default rather
+        # than being guessed at, and lands in a bucket with the other
+        # unclassified names - which is honest: their joint concentration
+        # genuinely is unchecked. `corr_group` stays None when the cluster map
+        # could not place the name, and the engine then skips that gate
+        # instead of inventing a group of one.
         sizing = size_position(
             symbol=symbol, entry=setup.entry, stop=setup.stop,
             target=setup.target, cfg=cfg, portfolio=pf,
+            sector=(sectors.sector_for(symbol) or "UNKNOWN") if sectors
+                   else "UNKNOWN",
+            corr_group=clusters.group_for(symbol) if clusters else None,
             adv_shares=setup.adv_shares, atr_pct=setup.atr_pct,
             market_risk_off=market_risk_off,
             data_as_of=stage2.as_of, today=today,
@@ -441,7 +481,11 @@ def run_stage4(
             stop_basis=setup.stop_basis,
             invalidation=setup.invalidation,
         ))
-        pf = _with_position(pf, symbol, sizing)
+        pf = _with_position(
+            pf, symbol, sizing,
+            sector=(sectors.sector_for(symbol) or "UNKNOWN")
+                   if sectors else "UNKNOWN",
+            corr_group=clusters.group_for(symbol) if clusters else None)
 
     return result
 
@@ -459,15 +503,27 @@ def _rationale(setup: Setup, sizing: Sizing) -> str:
     return " | ".join(bits)
 
 
-def _with_position(pf: Portfolio, symbol: str, sizing: Sizing) -> Portfolio:
+def _with_position(pf: Portfolio, symbol: str, sizing: Sizing, *,
+                   sector: str = "UNKNOWN",
+                   corr_group: str | None = None) -> Portfolio:
     """A copy of the portfolio with this approval added, so the next
-    candidate is sized against the book that would actually exist."""
+    candidate is sized against the book that would actually exist.
+
+    SECTOR AND CLUSTER MUST TRAVEL WITH THE POSITION. Without them this
+    function added every approval as sector "UNKNOWN" with no cluster, so
+    `sector_exposure("Information Technology")` read zero after approving an
+    IT name and `cluster_exposure` read zero after approving a clustered one.
+    Both caps are computed from the POSITIONS, so threading the classification
+    into `size_position` and not into here would leave them reading an empty
+    book - the gates would appear wired and still never bind within a scan.
+    """
     from desk.risk.engine import Position
 
     return Portfolio(
         positions=[*pf.positions, Position(
             symbol=symbol, qty=sizing.qty,
             entry=sizing.entry or 0.0, stop=sizing.stop or 0.0,
+            sector=sector, corr_group=corr_group,
         )],
         realised_pnl_today=pf.realised_pnl_today,
     )

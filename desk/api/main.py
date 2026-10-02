@@ -37,6 +37,7 @@ from desk.plan.build import build_plan
 from desk.plan.models import DailyPlan, ScanSummary
 from desk.registry.fleet import fleet_status
 from desk.settings import Settings, configure_logging
+from desk.risk.clusters import cluster_map
 from desk.risk.engine import Portfolio, Position, RiskConfig, Sizing, size_position
 from desk.scanner.stage0 import run_stage0
 from desk.scanner.stage1 import REQUIRED_BARS, Stage1Result, run_stage1
@@ -2258,9 +2259,23 @@ def _run_funnel(as_of: date, *, regime: Regime, capital: float,
         if vetted != stage3.kept:
             stage3.kept = vetted
 
+        # THE TWO CONCENTRATION CAPS NEED THEIR INPUTS, and before this both
+        # ran on defaults: every candidate was sector "UNKNOWN", which made
+        # the 30% sector cap a cap on total exposure, and `corr_group` was
+        # always None, which left the 25% correlated cap skipped on every
+        # trade since it was written.
+        #
+        # CLUSTERED ON THE WHOLE SURVIVOR SET, not the shortlist. Correlation
+        # structure is a property of the cross-section; clustering the eight
+        # names that reached Stage 4 would find nothing by construction, and
+        # the question is whether those eight sit inside groups defined by the
+        # market. ~1.7s on 1,597 names.
+        clusters = cluster_map(
+            history.wide_many(["close"])["close"], as_of=as_of)
         stage4 = run_stage4(stage3.narrow(stage2), stage1,
                             cfg=RiskConfig(capital=capital),
                             portfolio=portfolio, events=events,
+                            sectors=_sector_map(), clusters=clusters,
                             max_trades=max_trades,
                             target_r=target_r or cfg.risk_reward,
                             stop_atrs=stop_atrs, holding_days=holding_days,
