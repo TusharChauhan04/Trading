@@ -42,6 +42,7 @@ from desk.scanner.stage1 import REQUIRED_BARS, Stage1Result, run_stage1
 from desk.llm.base import LLMProvider
 from desk.llm.budget import CostMeter
 from desk.llm.client import MeteredClient
+from desk.llm.providers.hosted import HostedFreeProvider
 from desk.llm.providers.local import LocalProvider
 from desk.llm.providers.openai import OpenAIProvider
 from desk.regime.engine import compute_regime
@@ -603,7 +604,15 @@ def _llm_client():
     """
     cfg = Settings.from_env()
     provider: LLMProvider
-    if cfg.llm_base_url:
+    if cfg.llm_base_url and cfg.llm_api_key:
+        # A hosted OpenAI-compatible endpoint on a FREE tier. Rs 0, no install,
+        # only a free account - the cheapest working route. HostedFreeProvider
+        # refuses any model without a ":free" suffix, so a paid model cannot
+        # arrive here and be metered at zero.
+        provider = HostedFreeProvider(model=cfg.llm_model,
+                                      base_url=cfg.llm_base_url,
+                                      api_key=cfg.llm_api_key)
+    elif cfg.llm_base_url:
         # A configured local server wins over a key on disk. The key is
         # usually left over rather than a preference, and quietly billing
         # someone who has just pointed the desk at their own machine would

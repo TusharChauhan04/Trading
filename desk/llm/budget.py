@@ -53,7 +53,8 @@ from pathlib import Path
 from desk.llm.base import BudgetExceeded, Usage
 
 __all__ = [
-    "DEFAULT_MONTHLY_CEILING_INR", "DEFAULT_USD_INR", "LOCAL_PREFIX",
+    "DEFAULT_MONTHLY_CEILING_INR", "DEFAULT_USD_INR", "FREE_SUFFIX",
+    "LOCAL_PREFIX",
     "CostMeter", "ModelPrice", "PRICES", "ZERO_PRICE", "price_for",
 ]
 
@@ -101,6 +102,17 @@ PRICES: dict[str, ModelPrice] = {
 #: is what makes name-based pricing unworkable for local models.
 LOCAL_PREFIX = "local:"
 
+#: Stamped by OpenRouter-style model ids on their free tier, e.g.
+#: "deepseek/deepseek-r1:free". Priced at zero for the same reason as
+#: LOCAL_PREFIX - the call genuinely costs nothing - and recognised by SUFFIX
+#: because that is the provider's own convention rather than ours.
+#:
+#: NARROWER THAN IT LOOKS. HostedFreeProvider REFUSES to construct with a model
+#: that lacks this suffix, so a paid model cannot reach the meter through that
+#: route and be priced free. A paid model goes through OpenAIProvider, where it
+#: is metered against the rupee ceiling.
+FREE_SUFFIX = ":free"
+
 ZERO_PRICE = ModelPrice(Decimal("0"), Decimal("0"))
 
 
@@ -124,7 +136,7 @@ def price_for(model: str) -> ModelPrice:
     other, at Rs 0, so "how many times did Stage 3 run" stays answerable -
     which is the question the ledger exists for, separately from spend.
     """
-    if model.startswith(LOCAL_PREFIX):
+    if model.startswith(LOCAL_PREFIX) or model.endswith(FREE_SUFFIX):
         return ZERO_PRICE
     try:
         return PRICES[model]

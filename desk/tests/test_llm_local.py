@@ -290,3 +290,121 @@ def test_no_base_url_leaves_openai_in_charge(
     cfg = Settings.from_env(env_file=None)
     assert not cfg.llm_local
     assert cfg.llm_configured
+
+
+# -- the hosted free-tier route, the third one ------------------------------
+
+def test_a_free_tier_model_costs_nothing() -> None:
+    from desk.llm.budget import FREE_SUFFIX, price_for
+
+    p = price_for("deepseek/deepseek-r1" + FREE_SUFFIX)
+    assert p.input_per_mtok == 0 and p.output_per_mtok == 0
+
+
+def test_the_free_exemption_is_the_suffix_only() -> None:
+    """A paid model must still be priced. If this ever passes for a bare name,
+    a real model typo'd into DESK_LLM_MODEL bills silently at zero."""
+    from desk.llm.base import BudgetExceeded
+    from desk.llm.budget import price_for
+
+    assert price_for("gpt-4o-mini").input_per_mtok > 0
+    with pytest.raises(BudgetExceeded, match="no price on file"):
+        price_for("deepseek/deepseek-r1")          # same model, no :free
+
+
+def test_the_hosted_provider_refuses_a_paid_model() -> None:
+    """ITS WHOLE PREMISE is that the call is free, and the meter prices it at
+    zero on the strength of the suffix. A paid model reaching here would spend
+    real money unrecorded, so construction fails rather than the bill arriving
+    later."""
+    from desk.llm.providers.hosted import HostedFreeProvider
+
+    with pytest.raises(ValueError, match="free-tier models only"):
+        HostedFreeProvider(model="gpt-4o", api_key="x")
+    HostedFreeProvider(model="openai/gpt-oss-20b:free", api_key="x")
+
+
+def test_the_hosted_provider_sends_the_key_and_local_does_not() -> None:
+    """The distinction that keeps LocalProvider's safety guarantee intact.
+
+    LocalProvider sends NO Authorization header so a mis-set URL gets 401
+    instead of a silent bill; the hosted route must send one or a free tier
+    rejects it. Two classes, not one with a flag.
+    """
+    import inspect
+
+    from desk.llm.providers import hosted, local
+
+    assert "Authorization" in inspect.getsource(hosted.HostedFreeProvider)
+    assert "Authorization" not in inspect.getsource(local.LocalProvider)
+
+
+def test_a_rate_limited_free_tier_reads_as_did_not_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """429 on a free tier is its NORMAL state under load, not a fault. The desk
+    makes one call per session so there is nothing to back off within - the
+    honest answer is that the check did not run today."""
+    from desk.llm.providers.hosted import HostedFreeProvider
+
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        _raise(urllib.error.HTTPError("u", 429, "Too Many", {},
+                                      BytesIO(b"slow down"))))
+    with pytest.raises(LLMUnavailable, match="rate-limited"):
+        HostedFreeProvider(api_key="x").complete(
+            [Message(role="user", content="x")], max_output_tokens=10,
+            temperature=0.0)
+
+
+def test_a_withdrawn_free_model_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Free models are renamed and withdrawn without notice, so a 404 needs to
+    point at the fallback chain rather than reading as a broken endpoint."""
+    from desk.llm.providers.hosted import HostedFreeProvider
+
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        _raise(urllib.error.HTTPError("u", 404, "NF", {}, BytesIO(b""))))
+    with pytest.raises(LLMUnavailable, match="FREE_MODEL_CHAIN"):
+        HostedFreeProvider(api_key="x").complete(
+            [Message(role="user", content="x")], max_output_tokens=10,
+            temperature=0.0)
+
+
+def test_the_served_model_reaches_the_ledger_with_its_suffix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OpenRouter can substitute a model. Record what ANSWERED, and keep the
+    suffix so the meter still prices it at zero."""
+    from desk.llm.providers.hosted import HostedFreeProvider
+
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *a, **k: _Resp(_payload(model="qwen/qwq-32b")))
+    out = HostedFreeProvider(api_key="x").complete(
+        [Message(role="user", content="x")], max_output_tokens=10,
+        temperature=0.0)
+    assert out.model == "qwen/qwq-32b:free"
+
+
+def test_a_url_with_a_key_is_hosted_and_without_one_is_local(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A base URL ALONE means a local server, which needs no key and must not
+    be sent one. The two states must not collapse."""
+    from desk.settings import Settings
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("DESK_LLM_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.delenv("DESK_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    local_cfg = Settings.from_env(env_file=None)
+    assert local_cfg.llm_local and not local_cfg.llm_hosted_free
+
+    monkeypatch.setenv("DESK_LLM_API_KEY", "or-x")
+    hosted_cfg = Settings.from_env(env_file=None)
+    assert hosted_cfg.llm_hosted_free and not hosted_cfg.llm_local
+    assert hosted_cfg.llm_configured
+    described = "\n".join(hosted_cfg.describe())
+    assert "HOSTED FREE" in described
+    assert "or-x" not in described, "describe() must never echo a key"

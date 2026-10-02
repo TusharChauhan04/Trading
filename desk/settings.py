@@ -97,6 +97,17 @@ class Settings:
     openai_api_key: str | None = None
     llm_monthly_ceiling_inr: Decimal = Decimal("500.00")
     llm_model: str = "gpt-4o-mini"
+    llm_api_key: str | None = None
+    """Key for an OpenAI-COMPATIBLE hosted endpoint, e.g. OpenRouter.
+
+    Distinct from `openai_api_key`, which is specifically api.openai.com. When
+    this and `llm_base_url` are both set, Stage 3 uses the hosted route and the
+    model is expected to carry the `:free` suffix - the provider refuses to
+    construct otherwise, so a paid model cannot be metered as free.
+
+    An OpenRouter key is free to create and needs no payment method, which is
+    what makes this the cheapest working route: no install, no credit."""
+
     llm_base_url: str | None = None
     """Point Stage 3 at a LOCAL OpenAI-compatible server instead of OpenAI.
 
@@ -139,6 +150,8 @@ class Settings:
                                              Decimal("500.00")),
             llm_model=os.environ.get("DESK_LLM_MODEL") or "gpt-4o-mini",
             llm_base_url=os.environ.get("DESK_LLM_BASE_URL") or None,
+            llm_api_key=(os.environ.get("DESK_LLM_API_KEY")
+                         or os.environ.get("OPENROUTER_API_KEY") or None),
             usd_inr=_decimal("DESK_USD_INR", Decimal("90.00")),
             default_capital=_float("DESK_DEFAULT_CAPITAL", DEFAULT_CAPITAL),
             risk_reward=_float("DESK_RISK_REWARD", DEFAULT_RISK_REWARD),
@@ -149,9 +162,18 @@ class Settings:
         )
 
     @property
+    def llm_hosted_free(self) -> bool:
+        """Whether Stage 3 goes to a hosted FREE-tier endpoint.
+
+        Both a base URL and a key: a base URL alone means a local server, which
+        needs no key and must not be sent one.
+        """
+        return bool(self.llm_base_url and self.llm_api_key)
+
+    @property
     def llm_local(self) -> bool:
-        """Whether Stage 3 goes to a local server rather than to OpenAI."""
-        return bool(self.llm_base_url)
+        """Whether Stage 3 goes to a LOCAL server - base URL, no key."""
+        return bool(self.llm_base_url and not self.llm_api_key)
 
     @property
     def llm_configured(self) -> bool:
@@ -161,11 +183,14 @@ class Settings:
         it. This is what `/plan/today` consults to decide between running
         Stage 3 and reporting it as a check that did not run.
         """
-        return bool(self.openai_api_key) or self.llm_local
+        return (bool(self.openai_api_key) or self.llm_local
+                or self.llm_hosted_free)
 
     def describe(self) -> list[str]:
         """What is configured. NEVER what it is set to."""
-        route = (f"LOCAL at {self.llm_base_url} - free, no key needed"
+        route = (f"HOSTED FREE at {self.llm_base_url} - Rs 0, key set"
+                 if self.llm_hosted_free else
+                 f"LOCAL at {self.llm_base_url} - free, no key needed"
                  if self.llm_local else
                  ("OpenAI" if self.openai_api_key
                   else "NONE - Stage 3 will not run"))
