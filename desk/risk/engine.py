@@ -38,6 +38,33 @@ class RiskConfig(BaseModel):
     max_open_risk_pct: float = Field(default=4.0, gt=0, le=20)  # portfolio heat
     max_correlated_pct: float = Field(default=25.0, gt=0, le=100)
     max_daily_loss_pct: float = Field(default=3.0, gt=0, le=20)
+    max_drawdown_pct: float | None = Field(default=None, gt=0, le=90)
+    """Peak-to-trough equity drawdown at which to stop opening positions.
+
+    DELIBERATELY None BY DEFAULT, and not out of caution about the gate -
+    there is no honest default, because this number and `risk_pct` are one
+    decision. From `drawdown_outlook` on the donchian 12%/20-session
+    sequence over 200 trades:
+
+        0.5% risk   median DD  8.4%   p95 18.2%   P(DD>20%)  2.5%
+        1.0% risk   median DD 16.2%   p95 33.2%   P(DD>20%) 32.6%
+        2.0% risk   median DD 30.1%   p95 55.7%   P(DD>35%) 35.9%
+
+    A 20% cap at the default 1% risk fires about ONE RUN IN THREE while
+    the strategy is behaving exactly as measured. That is not a circuit
+    breaker; it is a coin flip that halts trading, and it would halt it
+    during the ordinary drawdown that precedes recovery. The same 20% cap
+    at 0.5% risk fires 2.5% of the time, which is a genuine tail.
+
+    So pick the pair, never the number: run `drawdown_outlook` on your own
+    trade sequence and set this above the p95 for the `risk_pct` you intend
+    to use. Left None, the gate is SKIPPED and says so - the same
+    no-claim-no-gate rule the correlated cap follows.
+
+    WHY IT IS NEEDED AT ALL: `max_daily_loss_pct` reads only
+    `realised_pnl_today`, so it resets every morning. Losing 2% a day for
+    ten sessions is an 18% drawdown that never once trips a 3% daily cap.
+    """
     max_open_positions: int = Field(default=5, ge=1, le=50)
     min_risk_reward: float = Field(default=1.5, gt=0)
     max_adv_participation_pct: float = Field(default=1.0, gt=0, le=25)
@@ -134,6 +161,27 @@ class Position:
 class Portfolio:
     positions: list[Position] = field(default_factory=list)
     realised_pnl_today: float = 0.0
+    equity: float | None = None
+    """Account equity now. None means the caller did not say, which is
+    different from zero and must never be read as a total loss."""
+    peak_equity: float | None = None
+    """The highest equity this account has reached. Supplied by the caller
+    because only the caller knows it - the engine sees one day at a time and
+    the journal is what holds the history."""
+
+    @property
+    def drawdown_pct(self) -> float | None:
+        """Current peak-to-trough drawdown as a positive percentage.
+
+        None when either figure is missing - NOT 0.0, which would read as
+        "at a high" and is exactly the state a missing input is not.
+        """
+        if self.equity is None or self.peak_equity is None:
+            return None
+        if not (self.peak_equity > 0):
+            return None
+        dd = (self.peak_equity - self.equity) / self.peak_equity * 100.0
+        return max(0.0, dd)
 
     @property
     def open_risk(self) -> float:
@@ -305,6 +353,26 @@ def size_position(
     if -pf.realised_pnl_today >= daily_loss_cap:
         return reject(RejectReason.DAILY_LOSS_CAP,
                       f"down {-pf.realised_pnl_today:,.0f} against cap {daily_loss_cap:,.0f}")
+
+    # Peak-to-trough, which the daily cap above cannot see: it resets every
+    # morning, so a slow bleed never trips it. Runs only when the caller
+    # supplies both a cap and the equity state, because neither is
+    # derivable from one day of positions - no claim, no gate.
+    dd_now = pf.drawdown_pct
+    if cfg.max_drawdown_pct is None:
+        out.checks_skipped.append(
+            "drawdown: no max_drawdown_pct configured, so peak-to-trough "
+            "equity was not checked. The daily loss cap resets each morning "
+            "and cannot see a slow bleed.")
+    elif dd_now is None:
+        out.checks_skipped.append(
+            "drawdown: no equity/peak_equity supplied on the portfolio, so "
+            f"the {cfg.max_drawdown_pct}% cap could not be applied.")
+    elif dd_now >= cfg.max_drawdown_pct:
+        return reject(RejectReason.DRAWDOWN_CAP,
+                      f"down {dd_now:.1f}% from a peak of "
+                      f"{pf.peak_equity:,.0f}, cap is "
+                      f"{cfg.max_drawdown_pct}%")
 
     # --- the actual sizing -------------------------------------------------
     risk_pct = cfg.risk_pct

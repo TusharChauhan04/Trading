@@ -127,6 +127,7 @@ class RejectReason(str, Enum):
     RR_TOO_LOW = "risk_reward_too_low"
     ILLIQUID = "illiquid_vs_adv"
     DAILY_LOSS_CAP = "daily_loss_cap"
+    DRAWDOWN_CAP = "drawdown_cap"   # peak-to-trough, not one day
     MAX_POSITIONS = "max_open_positions"
     NOT_TRADEABLE = "not_tradeable"     # ban / circuit / suspended
     STALE_DATA = "stale_data"

@@ -467,6 +467,24 @@ def run_stage4(
             # it is NOT calibrated - nothing has yet measured whether a 0.8
             # wins 80% of the time. The journal is what will make this number
             # mean something; until then it is a ranking, honestly labelled.
+            #
+            # WHEN IT IS CALIBRATED, DO NOT CALIBRATE IT ON HIT RATE.
+            # OpenTerminalUI's agent/ensemble/scorecard.py does exactly that -
+            # persona_weights returns max(0.25, accuracy) - and it stores
+            # benchmark_return_pct on every signal row without using it. A
+            # source that says Buy on everything scores a high hit rate in a
+            # rising market, so that weight measures market direction rather
+            # than skill. It is the same error the random-entry arm in
+            # desk/backtest exists to avoid, and the benchmark needed to avoid
+            # it was already on the row.
+            #
+            # Two more of theirs worth not repeating: weights go live after
+            # FIVE evaluations (a walk-forward window here needs 30 trades, and
+            # picking the best of N sources by hit rate is the same selection
+            # problem as picking the best of 278 pairs by p-value), and the
+            # 0.25 floor means a reliably wrong source can never be weighted
+            # out - a consistently wrong signal carries information, but only
+            # if you are allowed to act on that.
             confidence=round(setup.score / 100.0, 3),
             entry=sizing.entry, stop=sizing.stop, target=sizing.target,
             qty=sizing.qty, capital_at_risk=sizing.capital_at_risk,
