@@ -803,3 +803,25 @@ def test_the_funnel_passes_a_cache():
     import inspect
     from desk.api import main as api
     assert "cache=VerdictCache(" in inspect.getsource(api._run_funnel)
+
+
+def test_the_system_prompt_forbids_filling_gaps_from_memory() -> None:
+    """build_prompt writes "not available" for every absent datum, which is
+    right - but being TOLD a figure is missing is not the same as being told
+    not to supply it. A model asked about RELIANCE with "P/E: not available"
+    can produce a plausible P/E from training data, and the plan would then
+    rest on an undated, unsourced, possibly years-stale number while reading
+    as though it rested on the filing data shown.
+
+    Pinned as a test because it is a one-line deletion away from being lost
+    and nothing else in the suite would notice: Stage 3 only runs with a
+    configured provider, so no other test exercises the prompt's content.
+    """
+    from desk.scanner.stage3 import _SYSTEM
+
+    low = _SYSTEM.lower()
+    assert "not available" in low
+    assert "do not supply it from" in low or "own knowledge" in low, (
+        "the prompt no longer forbids filling a missing datum from the "
+        "model's own knowledge")
+    assert "never state a figure that does not appear above" in low

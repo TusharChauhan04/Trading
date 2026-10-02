@@ -89,6 +89,43 @@ verified:
      or failed, not just a boolean."
 
 risks:
+  - "agent/playbook.py + agent/debate/roles.py: THE PROMPTS ARE THE ASSET
+     here, and they import as data the way PRESETS did - playbook.compose is
+     two lines. Read 3 of the 22 files in agent/ so far (playbook, debate/roles,
+     debate/orchestrator); THIS IS NOT A VERDICT ON THE SUBTREE. The
+     orchestrators are not importable: they depend on backend.agent.events,
+     .streaming, .orchestrator, backend.config.settings and
+     backend.services.llm.model_router, and are async/streaming throughout."
+  - "agent/playbook.py ACTION_DISCIPLINE is LOOSER than our Stage 3 and must
+     not be adopted. It lets the agent propose paper orders, alerts and
+     watchlist additions via propose_* tools. Our _SYSTEM says YOUR ONLY
+     POWER IS TO REMOVE NAMES, which is the no-LLM-may-relax-a-risk-gate
+     constraint written into the prompt itself. Ours stays."
+  - "ADOPTED from playbook.EVIDENCE_DISCIPLINE, one clause: never fill a gap
+     from memory. build_prompt already writes 'not available' for every
+     absent datum rather than omitting it - but being TOLD a figure is
+     missing is not the same as being told not to supply it. A model shown
+     'P/E: not available' for a well-known name can produce a plausible one
+     from training data, and the plan would then rest on an undated,
+     unsourced, possibly years-stale number while reading as though it
+     rested on the filing data shown. Stage 3 only runs with a configured
+     provider, so no other test exercises the prompt text; pinned by
+     test_the_system_prompt_forbids_filling_gaps_from_memory."
+  - "agent/debate: the bull/bear split is the right shape for PlanTrade
+     .dissenting, which exists and is empty on every record so far. The
+     useful detail is BEAR_RESEARCHER's instruction to identify weak
+     support WITHOUT conceding the central thesis - without that a
+     two-sided prompt returns a both-sides mush that fills the field
+     without informing it. Not built: a second LLM pass per name doubles
+     Stage 3 cost and nothing has measured whether a dissent improves a
+     decision. Worth testing once Stage 3 runs at all."
+  - "agent/playbook.STRATEGY_RESEARCHER states this project's own method back
+     at it: form a hypothesis, change exactly ONE variable per round,
+     always compare to the prior baseline, require out-of-sample
+     validation, and a high in-sample return with p>=0.05 is curve-fitting
+     rather than an edge. Nothing to import - recorded because an upstream
+     repo independently arriving at the same discipline is evidence the
+     discipline is right, not local taste."
   - "This is an application, not a library. Module boundaries are not
      designed for external import: 4 of 20 targets need siblings or
      dependencies, and a future upstream commit could break any import

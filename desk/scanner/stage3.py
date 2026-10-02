@@ -107,7 +107,17 @@ order given:
 "concerns": ["..."]}]
 
 Use Buy or Overweight ONLY for names you would actually open today. \
-Everything else removes the name."""
+Everything else removes the name.
+
+JUDGE ONLY ON WHAT IS WRITTEN ABOVE. Where a figure is marked "not \
+available", it is genuinely unknown to this system - do NOT supply it \
+from your own knowledge of the company, and do not reason as though you \
+know it. You may well have a P/E or a debt figure for a well-known name \
+in memory; using it would mean this plan rests on a number that is \
+undated, unsourced and possibly years stale, while appearing to rest on \
+the filing data shown. Treat a missing datum as a reason for caution in \
+its own right, and say so in `concerns`. Never state a figure that does \
+not appear above."""
 
 
 @dataclass(frozen=True, slots=True)
