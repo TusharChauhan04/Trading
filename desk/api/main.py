@@ -1806,6 +1806,16 @@ def journal_day(day: date) -> dict:
     return {
         "as_of": dec.as_of.isoformat(),
         "recorded_at": dec.recorded_at.isoformat(),
+        # A RECONSTRUCTION IS NOT A TRACK RECORD. Written after the day it is
+        # for, so it could have been re-run until it looked good; nothing in
+        # the file itself distinguishes that from a decision someone was
+        # actually committed to. Two of the first three records on disk are
+        # reconstructions carrying five sized trades, and a regression audit
+        # calling the plan endpoint silently wrote a sixth. The features are
+        # still point-in-time - the store is keyed by filename - so this is
+        # about commitment, not look-ahead.
+        "reconstructed": dec.reconstructed,
+        "reconstruction_lag_days": dec.reconstruction_lag_days,
         "regime": dec.regime,
         "capital": dec.capital,
         "digest": dec.digest(),

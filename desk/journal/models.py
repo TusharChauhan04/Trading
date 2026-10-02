@@ -163,6 +163,40 @@ class Decision:
         return not self.trades
 
     @property
+    def reconstruction_lag_days(self) -> int:
+        """Days between the trading day and when this record was written.
+
+        0 for a decision taken on the day. Positive for a reconstruction.
+        Negative is possible and legitimate - a plan written the evening
+        before for the next session - and must not be confused with a
+        reconstruction, which is why this is signed rather than absolute.
+        """
+        return (self.recorded_at.astimezone(IST).date() - self.as_of).days
+
+    @property
+    def reconstructed(self) -> bool:
+        """Was this written AFTER the day it is for?
+
+        WHY THIS HAS TO BE READABLE. The field docstring above has always said
+        a decision recorded days later is a reconstruction and the gap is the
+        evidence - but nothing computed the gap, so nothing acted on it. Two of
+        the first three records on disk were reconstructions carrying five
+        sized trades between them, and a regression audit that calls the plan
+        endpoint silently wrote a sixth, three days late, complete with an
+        entry price and 9,994 rupees of capital at risk.
+
+        The features behind a reconstruction are still point-in-time - the
+        store is keyed by filename, so a scan for a past day cannot see later
+        files. That is not the problem. The problem is that a REPLAY CAN BE
+        RUN AGAIN. A track record assembled from reconstructions is a record
+        of the last time the pipeline was run, not of decisions anyone was
+        committed to, and nothing in the file distinguishes the two. So this
+        is reported wherever decisions are counted, and a reconstruction must
+        never be added to a live track record.
+        """
+        return self.reconstruction_lag_days > 0
+
+    @property
     def symbols(self) -> tuple[str, ...]:
         return tuple(t.symbol for t in self.trades)
 

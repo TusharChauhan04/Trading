@@ -461,3 +461,47 @@ def test_the_written_decision_is_fsynced(tmp_path):
     import inspect
     src = inspect.getsource(JournalStore.record)
     assert "os.fsync" in src
+
+
+# -- a reconstruction is not a track record ---------------------------------
+
+def test_a_decision_written_after_the_day_is_flagged_reconstructed() -> None:
+    """Two of the first three records on disk were reconstructions carrying
+    five sized trades between them, and a regression audit that called the plan
+    endpoint silently wrote a sixth three days late with 9,994 rupees of
+    capital at risk. The model's docstring always said the gap was the
+    evidence; nothing computed it, so nothing acted on it."""
+    d = Decision(as_of=date(2026, 9, 11),
+                 recorded_at=datetime(2026, 9, 18, 14, 44, tzinfo=IST),
+                 regime="trending_up")
+    assert d.reconstructed
+    assert d.reconstruction_lag_days == 7
+
+
+def test_a_decision_written_on_the_day_is_not_flagged() -> None:
+    d = Decision(as_of=date(2026, 9, 18),
+                 recorded_at=datetime(2026, 9, 18, 9, 15, tzinfo=IST))
+    assert not d.reconstructed
+    assert d.reconstruction_lag_days == 0
+
+
+def test_a_plan_written_the_night_before_is_not_a_reconstruction() -> None:
+    """The lag is SIGNED on purpose. A plan written the evening before the
+    session is the disciplined case, not the suspect one - taking an absolute
+    value here would flag exactly the behaviour the desk wants."""
+    d = Decision(as_of=date(2026, 9, 18),
+                 recorded_at=datetime(2026, 9, 17, 20, 30, tzinfo=IST))
+    assert not d.reconstructed
+    assert d.reconstruction_lag_days == -1
+
+
+def test_the_flag_survives_a_round_trip_through_disk(tmp_path) -> None:
+    """It is derived from stored fields rather than written, so it cannot go
+    stale - but it must still be correct after from_json."""
+    store = JournalStore(tmp_path)
+    d = Decision(as_of=date(2026, 9, 11),
+                 recorded_at=datetime(2026, 9, 18, 14, 44, tzinfo=IST))
+    store.record(d)
+    back = store.latest(date(2026, 9, 11))
+    assert back is not None and back.reconstructed
+    assert back.reconstruction_lag_days == 7
