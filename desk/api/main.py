@@ -1445,6 +1445,93 @@ def plan_today(
 
 # ---------------------------------------------------------------- regime ---
 
+@app.get("/indicators/{symbol}", tags=["indicators"])
+def indicators_for(symbol: str, day: date | None = None,
+                   lookback: int = Query(default=LOOKBACK_CEILING, ge=60,
+                                         le=LOOKBACK_CEILING)) -> dict:
+    """The eleven borrowed oscillators on one symbol, latest value each.
+
+    DELIBERATELY NOT IN FEATURE_COLUMNS, and that is the substance of this
+    endpoint rather than a limitation. Stage 1 computes 35 feature columns
+    which Stage 2 ranks on; adding eleven more would raise `num_trials` by
+    eleven for every measurement this project makes from now on, and the
+    deflated Sharpe on the one surviving cell is already 0.08 against a 0.95
+    bar. More candidate features make that worse, not better - the binding
+    constraint here is sample size, not feature count.
+
+    So they are computed on request, for a human looking at one name, and any
+    one of them earns a place in the ranking only by being tested through the
+    walk-forward harness first with the trial count incremented honestly.
+
+    Every value is NaN until its own window is full - reported as null here.
+    Upstream backfills the warmup from later bars, which is why these are
+    desk code rather than an import; see desk/indicators/oscillators.py.
+    """
+    from desk.indicators.oscillators import (
+        aroon, awesome_oscillator, cci, ichimoku, momentum, parabolic_sar,
+        roc, std_deviation, stochastic, ultimate_oscillator, williams_r,
+    )
+
+    target = day or _latest_snapshot_day()
+    if target is None:
+        raise HTTPException(404, "no market snapshot on file")
+    sym = symbol.strip().upper()
+    if not sym.endswith(".NS"):
+        sym = f"{sym}.NS"
+    store = BarStore(CONFIGS / "bhavcopy", calendar=_calendar_or_none())
+    try:
+        hist = store.history(as_of=target, lookback=lookback, symbols=[sym],
+                             columns=["open", "high", "low", "close",
+                                      "volume"])
+    except StoreError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+    wide = hist.wide_many(["high", "low", "close"])
+    h, lo, c = wide["high"], wide["low"], wide["close"]
+    if sym not in c.columns or int(c[sym].notna().sum()) < 60:
+        raise HTTPException(
+            404, f"{sym} has fewer than 60 bars on file to {target}; the "
+                 f"longest window here needs 52")
+
+    def last(frame) -> float | None:
+        v = frame[sym].iloc[-1]
+        return None if pd.isna(v) else round(float(v), 4)
+
+    k, d = stochastic(h, lo, c)
+    up, down = aroon(h, lo)
+    ich = ichimoku(h, lo)
+    return {
+        "symbol": sym, "as_of": str(target), "bars_used": int(len(c)),
+        "values": {
+            "stoch_k": last(k), "stoch_d": last(d),
+            "williams_r": last(williams_r(h, lo, c)),
+            "aroon_up": last(up), "aroon_down": last(down),
+            "cci": last(cci(h, lo, c)),
+            "roc_pct": last(roc(c)),
+            "momentum_rupees": last(momentum(c)),
+            "return_sd_daily": last(std_deviation(c)),
+            "awesome_oscillator": last(awesome_oscillator(h, lo)),
+            "ultimate_oscillator": last(ultimate_oscillator(h, lo, c)),
+            "parabolic_sar": last(parabolic_sar(h, lo)),
+            "tenkan_sen": last(ich["tenkan_sen"]),
+            "kijun_sen": last(ich["kijun_sen"]),
+            "senkou_span_a": last(ich["senkou_span_a"]),
+            "senkou_span_b": last(ich["senkou_span_b"]),
+        },
+        "caveats": [
+            "REPORTED ONLY - none of these feeds the ranking or the plan. "
+            "Adding them to FEATURE_COLUMNS would raise num_trials by eleven "
+            "for every future measurement, and the surviving cell's DSR is "
+            "already 0.08 against a 0.95 bar",
+            "null means the window is not yet full, never zero - upstream "
+            "backfills the warmup from LATER bars, which is a look-ahead",
+            "momentum_rupees is a price difference, not a ratio, so it is "
+            "not comparable across names; roc_pct is the comparable one",
+            "the senkou spans are NOT shifted forward as a chart draws them; "
+            "each carries the value computed from data up to its own bar",
+        ],
+    }
+
 @app.get("/research/mean-reversion", tags=["research"])
 def research_mean_reversion(day: date | None = None,
                             max_pvalue: float = Query(default=0.05, gt=0.0,
