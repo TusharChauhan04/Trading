@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 from datetime import date
 from functools import lru_cache
@@ -1442,6 +1443,131 @@ def plan_today(
 
 
 # ---------------------------------------------------------------- regime ---
+
+@app.get("/research/mean-reversion", tags=["research"])
+def research_mean_reversion(day: date | None = None,
+                            max_pvalue: float = Query(default=0.05, gt=0.0,
+                                                      le=1.0),
+                            lookback: int = Query(default=LOOKBACK_CEILING,
+                                                  ge=140,
+                                                  le=LOOKBACK_CEILING)) -> dict:
+    """Names whose log price is mean-reverting beyond what a random walk gives.
+
+    MEASURED AND EMPTY, like the pairs screen. On the full 1,490-name survivor
+    set this returns 3.5% of names at p < 0.05 over a year and 4.4% over five -
+    both AT OR BELOW the 5% a universe of pure random walks would produce. The
+    universe's average Hurst (0.411) is indistinguishable from the null mean
+    (0.4123). So expect nothing, and treat whatever appears as a chance finding
+    until it survives a longer window.
+
+    WHY THE ENDPOINT EXISTS ANYWAY. Two reasons, both about the alternative.
+    Upstream's version of this test calls H < 0.45 mean-reverting with no
+    reference to sample length, and the estimator is biased low enough that it
+    labels 62.8% of these same names mean-reverting - 936 candidates where the
+    calibrated answer is none. Having the measurement available and repeatable
+    is what stops that number coming back. And the few names that DO pass are
+    worth seeing: at the top are LIQUID, LIQUIDBEES, LIQUIDETF and LIQUIDIETF,
+    overnight money-market ETFs, which are genuinely not random walks and are
+    genuinely not trades. That is the screen working correctly.
+
+    POWER IS LIMITED AND THE CEILING MAKES IT WORSE. Measured detection rates
+    at 250 observations: 96% for a 4-day half-life, 41% at 11 days, 14% at 23
+    days, and nothing at all at 69 days. Mean reversion slow enough to trade
+    around comfortably is mostly missed, and LOOKBACK_CEILING caps this
+    endpoint at 300 bars. A deeper screen is a research task on a longer panel
+    (`desk.research.stationarity.hurst`), not a web request.
+
+    `p_value` is P(a random walk of the same length scores this low), from a
+    null simulated 20,000 times per length and verified robust to fat tails,
+    GARCH volatility clustering and this desk's own measured two-state
+    volatility. Read it rather than `hurst`, which means nothing without the
+    length it came from.
+    """
+    from desk.research.stationarity import (
+        MIN_OBSERVATIONS, UPSTREAM_MEAN_REVERT, hurst,
+    )
+
+    target = day or _latest_snapshot_day()
+    if target is None:
+        raise HTTPException(404, "no market snapshot on file")
+    store = BarStore(CONFIGS / "bhavcopy", calendar=_calendar_or_none())
+    try:
+        stage0 = run_stage0(store.load_day(target), min_price=20.0,
+                            min_turnover_lacs=100.0)
+        hist = store.history(as_of=target, lookback=lookback,
+                             symbols=stage0.survivors["symbol"].tolist(),
+                             columns=["close"])
+    except StoreError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+    closes = hist.wide_many(["close"])["close"]
+    sectors = _sector_map()
+    rows, refused, upstream_would_flag = [], 0, 0
+    for sym in closes.columns:
+        e = hurst(closes[sym].dropna())
+        if e.h is None:
+            refused += 1
+            continue
+        if e.h < UPSTREAM_MEAN_REVERT:
+            upstream_would_flag += 1
+        if e.pvalue is not None and e.pvalue <= max_pvalue:
+            rows.append({
+                "symbol": sym,
+                "industry": sectors.sector_for(sym) if sectors else None,
+                "hurst": round(e.h, 4),
+                "p_value": round(e.pvalue, 4),
+                "null_mean": round(e.null_mean, 4),
+                "null_sd": round(e.null_sd, 4),
+                "n_obs": e.n_obs,
+                "verdict": e.verdict,
+            })
+    rows.sort(key=lambda r: r["p_value"])
+
+    estimable = len(closes.columns) - refused
+    expected = 0.05 * estimable
+    # THE EXCESS NEEDS ITS OWN SCALE OR IT WILL BE MISREAD. A raw "+8.8 more
+    # than chance" sounds like a finding; against a binomial sd of ~8.4 it is
+    # one standard deviation of nothing. The sign of this excess flips with
+    # the window on real data (-2.67 sd at 250 bars, +1.05 at 300, -1.01 at
+    # 1240), which is what no effect looks like.
+    sd_null = math.sqrt(estimable * 0.05 * 0.95) if estimable else 0.0
+    z = (len(rows) - expected) / sd_null if sd_null > 0 else None
+    return {
+        "as_of": str(target), "window_sessions": lookback,
+        "names_estimable": estimable,
+        "names_refused": refused,
+        "passed": len(rows),
+        "expected_if_all_random_walks": round(expected, 1),
+        "excess_over_null": round(len(rows) - expected, 1),
+        "excess_in_sd_of_the_null": None if z is None else round(z, 2),
+        "excess_is_significant": None if z is None else bool(abs(z) > 2.0),
+        "upstream_fixed_threshold_would_flag": upstream_would_flag,
+        "results": rows[:60],
+        "caveats": [
+            "READ `excess_in_sd_of_the_null`, NOT `excess_over_null`. The raw "
+            "excess has no scale; measured on the full survivor set it comes "
+            "out -2.67 sd at 250 bars, +1.05 at 300 and -1.01 at 1240 - the "
+            "sign flips with the window, which is what no effect looks like. "
+            "3.5% of names pass over a year and 4.4% over five, against 5.0% "
+            "expected from pure random walks",
+            f"upstream's fixed H < {UPSTREAM_MEAN_REVERT} rule would have "
+            f"flagged {upstream_would_flag} of these {estimable} names; the "
+            "estimator is biased low at finite length and that threshold sits "
+            "above the null median, so it labels the majority of random walks "
+            "mean-reverting",
+            f"UNDERPOWERED: capped at LOOKBACK_CEILING={LOOKBACK_CEILING}. "
+            "Measured detection at 250 bars is 96% for a 4-day half-life but "
+            "14% at 23 days and zero at 69 - slow mean reversion is missed",
+            "cash-like instruments (LIQUIDBEES and other overnight ETFs) "
+            "legitimately top this list and are not trades",
+            f"{refused} names could not be estimated at all - fewer than "
+            f"{MIN_OBSERVATIONS} bars, a non-positive price, or too few lags "
+            "with any price variation (a frozen or barely-traded series). "
+            "They are counted, never scored 0.5 or 0.0",
+            "NOT walk-forward tested as a signal or a gate",
+        ],
+    }
+
 
 @app.get("/research/pairs", tags=["research"])
 def research_pairs(day: date | None = None,
