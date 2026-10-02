@@ -357,18 +357,33 @@ def test_a_rate_limited_free_tier_reads_as_did_not_run(
             temperature=0.0)
 
 
-def test_a_withdrawn_free_model_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Free models are renamed and withdrawn without notice, so a 404 needs to
-    point at the fallback chain rather than reading as a broken endpoint."""
+def test_a_withdrawn_free_model_advances_rather_than_failing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Free models are renamed and withdrawn without notice.
+
+    An earlier version of this test asserted the 404 message pointed the
+    operator at FREE_MODEL_CHAIN by hand. The chain now walks itself, so the
+    right assertion is that a withdrawn primary SUCCEEDS on a later model -
+    the advice was replaced by the behaviour.
+    """
     from desk.llm.providers.hosted import HostedFreeProvider
 
-    monkeypatch.setattr(
-        "urllib.request.urlopen",
-        _raise(urllib.error.HTTPError("u", 404, "NF", {}, BytesIO(b""))))
-    with pytest.raises(LLMUnavailable, match="FREE_MODEL_CHAIN"):
-        HostedFreeProvider(api_key="x").complete(
-            [Message(role="user", content="x")], max_output_tokens=10,
-            temperature=0.0)
+    tried: list[str] = []
+
+    def fake(req, *a, **k):
+        model = json.loads(req.data.decode())["model"]
+        tried.append(model)
+        if len(tried) == 1:
+            raise urllib.error.HTTPError("u", 404, "NF", {}, BytesIO(b""))
+        return _Resp(_payload(model=model))
+
+    monkeypatch.setattr("urllib.request.urlopen", fake)
+    out = HostedFreeProvider(api_key="x").complete(
+        [Message(role="user", content="x")], max_output_tokens=10,
+        temperature=0.0)
+    assert len(tried) == 2
+    assert out.model.endswith(":free")
 
 
 def test_the_served_model_reaches_the_ledger_with_its_suffix(
@@ -408,3 +423,87 @@ def test_a_url_with_a_key_is_hosted_and_without_one_is_local(
     described = "\n".join(hosted_cfg.describe())
     assert "HOSTED FREE" in described
     assert "or-x" not in described, "describe() must never echo a key"
+
+
+def test_a_rate_limited_model_advances_to_the_next(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The fallback chain, borrowed because upstream had already hit this.
+
+    A free model that 429s must not end the attempt - the chain exists so one
+    saturated model does not make Stage 3 silently not run.
+    """
+    from desk.llm.providers.hosted import HostedFreeProvider
+
+    calls: list[str] = []
+
+    def fake(req, *a, **k):
+        model = json.loads(req.data.decode())["model"]
+        calls.append(model)
+        if len(calls) < 3:
+            raise urllib.error.HTTPError("u", 429, "Too Many", {},
+                                         BytesIO(b"busy"))
+        return _Resp(_payload(model=model))
+
+    monkeypatch.setattr("urllib.request.urlopen", fake)
+    out = HostedFreeProvider(api_key="x").complete(
+        [Message(role="user", content="x")], max_output_tokens=10,
+        temperature=0.0)
+    assert len(calls) == 3, f"did not walk the chain: {calls}"
+    assert out.model.endswith(":free")
+    assert len(set(calls)) == 3, "the same model was retried instead of the next"
+
+
+def test_a_bad_key_does_not_walk_the_chain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 401 fails identically on every model. Retrying it four times turns one
+    clear error into four and hides which model answered."""
+    from desk.llm.providers.hosted import HostedFreeProvider
+
+    n = {"calls": 0}
+
+    def fake(*a, **k):
+        n["calls"] += 1
+        raise urllib.error.HTTPError("u", 401, "Unauthorized", {},
+                                     BytesIO(b"nope"))
+
+    monkeypatch.setattr("urllib.request.urlopen", fake)
+    with pytest.raises(LLMUnavailable, match="rejected the key"):
+        HostedFreeProvider(api_key="bad").complete(
+            [Message(role="user", content="x")], max_output_tokens=10,
+            temperature=0.0)
+    assert n["calls"] == 1, "a bad key was retried down the chain"
+
+
+def test_an_exhausted_chain_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
+    """"all N free models were unavailable" is a different finding from one
+    model's 429, and the operator needs the first."""
+    from desk.llm.providers.hosted import HostedFreeProvider
+
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        _raise(urllib.error.HTTPError("u", 429, "T", {}, BytesIO(b""))))
+    with pytest.raises(LLMUnavailable, match="free models were unavailable"):
+        HostedFreeProvider(api_key="x").complete(
+            [Message(role="user", content="x")], max_output_tokens=10,
+            temperature=0.0)
+
+
+def test_openrouter_attribution_headers_are_sent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from desk.llm.providers.hosted import HostedFreeProvider
+
+    seen: dict[str, str] = {}
+
+    def fake(req, *a, **k):
+        seen.update({k2.lower(): v for k2, v in req.headers.items()})
+        return _Resp(_payload())
+
+    monkeypatch.setattr("urllib.request.urlopen", fake)
+    HostedFreeProvider(api_key="x").complete(
+        [Message(role="user", content="x")], max_output_tokens=10,
+        temperature=0.0)
+    assert "http-referer" in seen and "x-title" in seen
+    assert seen.get("authorization", "").startswith("Bearer ")

@@ -96,6 +96,29 @@ class HostedFreeProvider:
     timeout: float = 90.0
     """Longer than OpenAI's 60s: a free tier queues behind paid traffic, and a
     timeout that fires while queued reads as a broken endpoint."""
+
+    fallback_models: tuple[str, ...] = FREE_MODEL_CHAIN
+    """Models to try, in order, when the primary is unavailable.
+
+    BORROWED BECAUSE UPSTREAM HAD ALREADY HIT THE PROBLEM. Their factory carries
+    the comment "Free models are flaky (429/404); try the configured free
+    chain", and this module's own docstring listed that flakiness as a caveat
+    while doing nothing about it. A free model that is rate-limited or withdrawn
+    makes Stage 3 silently not run, and one that is permanently renamed makes it
+    never run again.
+
+    Tried ONLY for availability failures - 429 and 404. A 401 is a bad key and
+    every model will reject it; a 500 is the endpoint's problem; a malformed
+    response is a bug. Retrying those would turn one clear error into four
+    identical ones and hide which model actually answered."""
+
+    extra_headers: tuple[tuple[str, str], ...] = (
+        ("HTTP-Referer", "https://github.com/TusharChauhan04/Trading"),
+        ("X-Title", "The India Desk"),
+    )
+    """OpenRouter reads these for attribution. Optional, conventional, and
+    harmless on any other OpenAI-compatible endpoint."""
+
     name: str = field(default="hosted_free", init=False)
 
     def __post_init__(self) -> None:
@@ -119,6 +142,39 @@ class HostedFreeProvider:
 
     def complete(self, messages: list[Message], *, max_output_tokens: int,
                  temperature: float) -> Completion:
+        """Try the primary model, then the fallback chain on availability.
+
+        Only 429 and 404 advance to the next model - see `fallback_models`.
+        If every candidate is unavailable the LAST failure is raised, with a
+        note naming how many were tried, so the message says 'the free tier
+        is exhausted' rather than repeating one model's 429.
+        """
+        candidates = [self.model] + [m for m in self.fallback_models
+                                     if m != self.model]
+        last: LLMUnavailable | None = None
+        for i, model in enumerate(candidates):
+            try:
+                return self._complete_one(
+                    messages, model=model,
+                    max_output_tokens=max_output_tokens,
+                    temperature=temperature)
+            except LLMUnavailable as exc:
+                # Only availability failures are worth another model. A bad
+                # key or an unreachable host fails identically on all of
+                # them, so those propagate immediately.
+                if not getattr(exc, "_try_next", False):
+                    raise
+                last = exc
+                continue
+        raise LLMUnavailable(
+            f"all {len(candidates)} free models were unavailable - the tier "
+            f"is rate-limited or the ids have been withdrawn. Stage 3 is "
+            f"reported as not run and the plan is unaffected. Last: "
+            f"{last}") from last
+
+    def _complete_one(self, messages: list[Message], *, model: str,
+                      max_output_tokens: int,
+                      temperature: float) -> Completion:
         if not self.api_key:
             raise LLMUnavailable(
                 "no key for the hosted free endpoint, so Stage 3 cannot run. "
@@ -127,7 +183,7 @@ class HostedFreeProvider:
                 "did not run; the deterministic stages are unaffected.")
 
         body = json.dumps({
-            "model": self.model,
+            "model": model,
             "messages": [{"role": m.role, "content": m.content}
                          for m in messages],
             "max_tokens": max_output_tokens,
@@ -138,7 +194,8 @@ class HostedFreeProvider:
         req = urllib.request.Request(
             f"{self.base_url}/chat/completions", data=body, method="POST",
             headers={"Authorization": f"Bearer {self.api_key}",
-                     "Content-Type": "application/json"})
+                     "Content-Type": "application/json",
+                     **dict(self.extra_headers)})
 
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
@@ -159,17 +216,18 @@ class HostedFreeProvider:
                 # RateLimited: the desk makes one call per session, so there
                 # is nothing to back off and retry within - the honest answer
                 # is that the check did not run today.
-                raise LLMUnavailable(
-                    f"the free tier is rate-limited right now (HTTP 429). "
-                    f"That is expected on a free plan rather than a fault - "
-                    f"Stage 3 is reported as not run and the plan is "
-                    f"unaffected. {detail[:140]}") from exc
+                nxt = LLMUnavailable(
+                    f"{model} is rate-limited (HTTP 429), which is expected "
+                    f"on a free plan rather than a fault. {detail[:120]}")
+                nxt._try_next = True        # availability: try the next model
+                raise nxt from exc
             if exc.code == 404:
-                raise LLMUnavailable(
-                    f"model {self.model!r} is not available at "
-                    f"{self.base_url} (HTTP 404). Free models are withdrawn "
-                    f"and renamed without notice; try another from "
-                    f"FREE_MODEL_CHAIN.") from exc
+                nxt = LLMUnavailable(
+                    f"model {model!r} is not available at {self.base_url} "
+                    f"(HTTP 404). Free models are withdrawn and renamed "
+                    f"without notice.")
+                nxt._try_next = True        # availability: try the next model
+                raise nxt from exc
             raise LLMError(
                 f"the hosted endpoint returned HTTP {exc.code}: "
                 f"{detail[:400]}") from exc
@@ -203,7 +261,7 @@ class HostedFreeProvider:
         # model, and recording what we asked for rather than what answered
         # would make the ledger claim a model that never ran. The suffix is
         # preserved so the meter still prices it at zero.
-        served = str(payload.get("model") or self.model)
+        served = str(payload.get("model") or model)
         if not served.endswith(FREE_SUFFIX):
             served = f"{served}{FREE_SUFFIX}"
         return Completion(text=text, model=served, usage=usage, raw=payload)
