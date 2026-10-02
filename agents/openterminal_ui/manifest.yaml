@@ -51,6 +51,19 @@ provides:
 # risk to the pin.
 
 verified:
+  - "core/riskfolio/clustering.py + hrp.py: ward linkage on a correlation
+     distance. EXTRACTED as desk/risk/clusters.py with two fixes, both
+     measured on real data rather than argued. (a) The distance matrix is NOT
+     Euclidean here - 7 of 120 centred-Gram eigenvalues negative, most
+     negative -1.161 - and ward merges at height 1.5570 where the maximum
+     possible distance is 1.0, so a threshold cut on that tree is meaningless.
+     Cophenetic correlation: average 0.6998, ward 0.4591, complete 0.3735,
+     single 0.3479. average is used on that ranking, and note that SINGLE
+     linkage - what Lopez de Prado's HRP specifies - is the worst fit here.
+     (b) corr().fillna(0) calls an unmeasurable pair UNCORRELATED, the most
+     favourable diversification assumption available; the filled matrix had a
+     smallest eigenvalue of -4.689, so it was not a correlation matrix at all.
+     This switched on D7, the correlated-exposure cap, which had never fired."
   - "backend/robustness/scorecard.py: PSR 0.9157 / DSR 0.0410 on a
      synthetic 1200-trade 1:2 book with num_trials=618. Runs standalone
      with only numpy."
@@ -140,6 +153,45 @@ risks:
      an ast.NodeVisitor whitelist validator rather than eval(). Worth copying
      if the desk ever offers custom screens. Not needed now: our screens are
      declarative dicts in desk/research/screens.py, which needs no evaluator."
+
+  - "core/riskfolio/covariance.py: NOT TAKEN, and the reason is a measurement
+     rather than the missing sklearn. Ledoit-Wolf shrinkage toward the
+     identity DESTROYS threshold-based clustering instead of denoising it -
+     adjusted Rand index against the sample clustering falls to 0.14-0.20 at
+     delta=0.3 and to 0.0 at delta=0.5, where all 266 names become singletons.
+     Compensating the threshold algebraically makes it worse (ARI 0.005), not
+     better: shrinking every off-diagonal toward zero compresses all distances
+     into a narrow band near sqrt(0.5) where average linkage cannot separate
+     anything. Shrinkage is built to make a covariance matrix safe to INVERT
+     for optimisation, which is a different job. The noise it addresses is
+     real here (249 observations against 266 names), and the right tool for it
+     would be Marchenko-Pastur eigenvalue filtering - Lopez de Prado's own
+     recommendation - which removes noise eigenvalues while leaving the
+     structure ones alone. Not implemented; nothing currently needs it.
+     SECONDARY: sklearn is absent and installing it would pull joblib, which
+     is pinned at 1.5.3."
+  - "core/riskfolio/risk_measures.py: NOT TAKEN. The modelling is the most
+     careful in the repository - the downside-deviation comment correctly
+     explains why it divides by all periods rather than only negative ones -
+     but every failure path reports a clean bill of health. _empty_report()
+     returns max_drawdown 0.0 and the final np.nan_to_num turns ANY failed
+     metric into 0.0, so a broken computation reads as never having lost
+     money; calmar divides by max(max_drawdown, 1e-9) and so returns about 1e9
+     when there is no drawdown; and sharpe falls back to 0.0 on zero
+     volatility, where a constant positive return stream actually has
+     unbounded Sharpe - the fallback points the wrong way. desk/robustness
+     (PSR/DSR/MinTRL) and desk/backtest/ruin.py (block-bootstrap drawdown)
+     already cover what the desk measures, and both refuse rather than
+     default. Worth revisiting for CVaR and the Ulcer index if a validated
+     edge ever needs richer reporting."
+  - "core/riskfolio/optimization.py, black_litterman.py, nco.py,
+     risk_parity.py: NOT APPLICABLE, and not for quality reasons. They solve
+     for continuous weights across a universe under a mean-risk objective.
+     The desk takes one to three DISCRETE swing trades whose size is set by
+     stop distance and risk_pct, with hard concentration caps - there is no
+     weight vector to optimise. optimization.py also imports covariance.py,
+     so it carries the sklearn dependency. Revisit only if the desk ever holds
+     a continuously rebalanced book, which is not the plan."
 
 not_in_scope:
   - "The web application: FastAPI backend, React frontend, Docker, OMS,
