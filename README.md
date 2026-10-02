@@ -3,10 +3,16 @@
 NSE/BSE decision-support. Research and risk only — there is no order routing in
 this repository, by design.
 
-> **Picking this up fresh?** Read [docs/HANDOVER.md](docs/HANDOVER.md)
-> first. It carries the methodology, the hard rules, every measured
-> negative, and the open decisions - written so a new agent can continue
-> without re-deriving any of it.
+> **Picking this up fresh?** Two documents exist for exactly that:
+>
+> - [docs/MEGA_PROMPT.md](docs/MEGA_PROMPT.md) - a self-contained block
+>   to paste into the first message of a new AI session. It carries the
+>   non-negotiable rules inline, so the agent is safe before it has read
+>   anything, then points at what to read for depth.
+> - [docs/HANDOVER.md](docs/HANDOVER.md) - the full briefing: the
+>   methodology and its four independent controls, every measured
+>   negative with its numbers, the things that look like bugs and are
+>   not, and the open decisions.
 
 ## Run it
 
