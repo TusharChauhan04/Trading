@@ -309,6 +309,57 @@ one strategy matters: a single rule is idle most of the time by construction.
 | `ml_classifier` | - | BUG-04 open: random train/test split leaks the future |
 | `opening_range_breakout` | - | parked: no intraday data exists in the system |
 
+#### The main goal, answered
+
+The desk exists to produce a 1:2 trade. On daily bars that failed for a
+measured reason: at the ~12% stop the structural stops actually imply, a 2R
+target is 24% away and only 26.6% of trades reached it even over 60 sessions.
+The obvious next question was intraday - moves are smaller, so the target is
+closer.
+
+**It does not work, and not because of costs.** Measured on 84,090 trades, 40
+of the most liquid NSE names, 31 sessions of 5-minute bars, entry at every bar,
+each trade confined to its own session:
+
+| stop | cost_R | win | stopped | timed out | breakeven win | net R |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0.25% | 1.689 | 26.8% | 63.1% | 10.1% | 89.6% | -1.783 |
+| 0.50% | 0.844 | 16.2% | 47.4% | 36.5% | 61.5% | -0.994 |
+| 1.00% | 0.422 | 6.9% | 23.3% | 69.8% | 47.4% | -0.518 |
+| 2.00% | 0.211 | 1.9% | 7.4% | 90.7% | 40.4% | -0.248 |
+
+**Gross expectancy is negative at every stop width** - -0.150R at 0.5%, -0.096R
+at 1.0%, -0.037R at 2.0% - so the round-trip cost required to break even comes
+out *negative*. You would have to be paid to trade. The slippage assumption
+that dominates the daily cost model is irrelevant here.
+
+The reason is geometry. The median session range is **2.18%** of the open, and a
+1:2 structure needs the price to travel twice the stop in favour while never
+travelling once the stop against. Both do not fit inside 2.18%. Tighten the stop
+below intra-session noise (median 5-minute bar range 0.166%) and noise removes
+it; widen it so the stop clears the noise and the 2x target exceeds the whole
+session. And the session boundary truncates *winners* preferentially, because
+the winner has to travel twice as far - at a 2% stop the resolved trades split
+1.9% to 7.4%, a ratio of 1:3.9 rather than the 1:2 the geometry alone implies.
+
+Entry is unconditional, so this measures the payoff structure rather than any
+signal - but the bar a signal must clear is now a number: at a 0.5% stop it has
+to add more than +0.150R of gross edge merely to reach zero, then 0.844R more to
+cover costs. Nothing measured on daily bars approaches that.
+
+The arithmetic could have been done before any data was fetched, and that is the
+lesson worth keeping: compare the median range of the timescale against
+(stop + 2x stop + noise) before building anything. 1:1 is a different structure
+and `rr` is a parameter in `desk/backtest/intraday.py` so the same lattice
+measures it.
+
+Two limits on the claim. The 5-minute sample is **31 sessions** - Yahoo accepts a
+45-day request, refuses 60, and refuses every older window outright, so the
+history cannot be bought at fetch time and only accumulates
+(`python -m desk.marketdata.refresh intraday`, wired for that reason). And the
+last reliably traded 5-minute bar is **15:15**: 15:20 and 15:25 come back null on
+every symbol and day checked, so an intraday exit "at the close" means 15:15.
+
 #### What closing BUG-03 settled
 
 BUG-03 was "the hedge ratio is fitted on the whole sample, so every backtested
