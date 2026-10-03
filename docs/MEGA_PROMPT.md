@@ -25,10 +25,23 @@ a hard-won methodology you must not re-derive or casually override.
 2. `README.md` — the measured results tables and the daily run order.
 3. `agents/openterminal_ui/manifest.yaml` — every extraction decision with its
    reason (6 verified, 17 refusals, 3 scope exclusions).
-4. Then call the `megamemory` MCP tool: `list_roots` for the concept map, then
+4. `research/README.md` — **the scripts that produced every number this
+   project reports**, with the pre-registered acceptance criterion each one
+   was judged on. If you need to re-run, verify or extend a measurement,
+   the harness is there. It also holds the pre-commit regression audit.
+5. Then call the `megamemory` MCP tool: `list_roots` for the concept map, then
    `understand` with whatever you are about to work on. megamemory is the
    project's only narrative continuity and records *why* each conclusion was
    reached and which earlier claims it superseded.
+
+There is a SECOND upstream clone: `agents/vibe_trading/` with a 206-factor
+library, already wired in with zero failures. The 795-file OpenTerminalUI
+clone gets most of the attention in these documents because it is the one
+still being worked through; do not forget the other exists.
+
+**What "done" means here:** written + tested + running + wired into
+production. A module nothing imports cannot run however well tested, and
+`desk/tests/test_wiring.py` fails if one is reachable from no entry point.
 
 Run `.venv/Scripts/python.exe -m pytest desk/tests/ -q` early. It should be
 green. That suite is the asset that makes every measurement here trustworthy.
@@ -36,12 +49,21 @@ green. That suite is the asset that makes every measurement here trustworthy.
 ## THE ONE THING TO UNDERSTAND
 
 **This project has no validated trading edge, and its value is that it can
-prove that honestly.** Seven independent avenues have returned measured
-negatives. If you arrive wanting to find an edge, you will find one and it will
-be wrong. Four positives have been published here and all four were retracted
-by the project's own later measurements — the most recent was a Deflated Sharpe
-of 0.8654 that turned out to be an artifact of where walk-forward window
-boundaries happened to fall.
+prove that honestly.** Every avenue tested so far has returned a measured
+negative. If you arrive wanting to find an edge, you will find one and it will
+be wrong. **Three positives have been published here and all three were
+retracted** by the project's own later measurements, and a fourth flattering
+number was caught before it was believed — a Deflated Sharpe of 0.8654 that
+was an artifact of where walk-forward window boundaries happened to fall.
+The retractions:
+
+1. "+0.071R, the first thing that makes money" (60-session hold) — the
+   permutation test showed random entry dates in the same stocks did as well
+   or better, p = 0.574. It was market beta.
+2. "+0.0505R, smaller and defensible" (20-session hold) — the walk-forward
+   on disjoint windows killed it.
+3. "5 of 8 windows positive and timing-significant" on 1,241 sessions — on
+   1,715 sessions including the COVID crash the same cell gives 2 of 8.
 
 So: **pre-register the acceptance criterion before every run**, write it in the
 script's docstring, and judge on it even when a different number looks better.
@@ -185,7 +207,8 @@ confirmation (monotonically worse).
 
 ## TONE
 
-The user wants momentum and directness. Report what was measured, including
+The user is not a programmer. Explain findings in plain terms and lead with
+the answer, not the method. They want momentum and directness. Report what was measured, including
 when it kills your own previous claim — that has happened repeatedly here and
 is the normal course of the work, not a failure. Do not soften a negative
 result into a maybe. Do not claim something is wired, tested or complete
@@ -203,5 +226,6 @@ sentence and move on.
   is intentional: an agent can be safe immediately and get deep afterwards.
 - Update the dated section whenever a hypothesis resolves, a user decision is
   made, or the store/suite counts move materially.
-- If the retraction count changes (currently four), update it in "THE ONE THING
+- If the retraction count changes (currently three published and retracted,
+  plus one caught pre-publication), update it in "THE ONE THING
   TO UNDERSTAND" — it is the single most load-bearing sentence in the prompt.

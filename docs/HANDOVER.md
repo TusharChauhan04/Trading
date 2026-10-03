@@ -14,20 +14,35 @@ top-to-bottom once, then used as a reference.
 ## 0. The single most important thing to understand
 
 **This project has no validated trading edge, and its value is that it can
-prove that honestly.** Six independent avenues have returned measured
-negatives. The tooling is the asset: it has repeatedly caught the previous
-agent's own errors, including published ones.
+prove that honestly.** Every avenue tested so far has returned a measured
+negative - §5 lists them with their numbers. The tooling is the asset: it
+has repeatedly caught the previous agent's own errors, including published
+ones.
 
 If you arrive wanting to find an edge, you will find one — and it will be
 wrong. The three times this project published a positive result, all three
-were retracted by its own later measurements:
+were retracted by its own later measurements - and a fourth flattering
+number was caught before it was believed:
 
 1. "+0.071R, the first thing that makes money" → permutation test showed it
    was market beta (p = 0.574).
-2. "the whole edge is one nine-month period" → deeper sample showed 5 of 8
-   windows; the original claim was an artifact of having only 4 windows.
-3. "DSR 0.8654" (2026-10-03) → an artifact of **window-boundary choice**; the
-   same data at 11 windows gives 0.2268.
+2. "+0.0505R, smaller and defensible" (20-session hold) → the walk-forward
+   on disjoint windows killed it.
+3. "5 of 8 windows positive and timing-significant" on 1,241 sessions → on
+   1,715 sessions including the COVID crash, 2 of 8.
+
+And the one caught in time: **DSR 0.8654** (2026-10-03), the best statistic
+this project has produced, against a 0.95 bar - an artifact of
+**window-boundary choice**, since the same data at 11 windows gives 0.2268.
+It was never acted on, because the acceptance criterion was a count of
+windows rather than a risk-adjusted aggregate. That is what the criterion is
+for.
+
+A related trap, and a different one: sample depth changes QUALITATIVE
+conclusions, not just confidence intervals. "The whole edge is one
+nine-month period" was published on 4 windows and became "works in 5 of 8
+regimes" on 8. So do not characterise WHY a walk-forward failed on a thin
+sample - establish that it failed, then deepen the sample.
 
 **The discipline that catches this is pre-registration.** Decide the acceptance
 criterion before the run, write it in the script's docstring, and judge on it
@@ -326,6 +341,16 @@ daily store it **cannot be refetched for past dates**, so those files are the
 only copy.
 
 ---
+
+## 10b. Reproducing anything in this file
+
+**`research/` holds the script behind every number quoted here**, grouped as
+walkforward / intraday / calibration / audit / extraction, with a README
+table mapping each script to what it established. Until 2026-10-03 those
+scripts lived in a session-scoped temp directory and were therefore lost
+between sessions - the project could state its conclusions and not
+reproduce them. `research/audit/audit_now.py` is the pre-commit regression
+harness referred to throughout.
 
 ## 11. If you only do one thing
 
