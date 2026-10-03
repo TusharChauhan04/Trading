@@ -9,6 +9,9 @@ this repository, by design.
 >   to paste into the first message of a new AI session. It carries the
 >   non-negotiable rules inline, so the agent is safe before it has read
 >   anything, then points at what to read for depth.
+> - [research/README.md](research/README.md) - **the script behind every
+>   number in this file**, with the pre-registered acceptance criterion
+>   each was judged on, plus the pre-commit regression audit harness.
 > - [docs/HANDOVER.md](docs/HANDOVER.md) - the full briefing: the
 >   methodology and its four independent controls, every measured
 >   negative with its numbers, the things that look like bugs and are
