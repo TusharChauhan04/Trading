@@ -78,3 +78,9 @@ configs/llm/
 # and a deletion is permanent. Back them up outside git if a measurement
 # depends on them.
 configs/intraday/
+
+# F&O segment, same reasoning as configs/bhavcopy/: market data is
+# refetched, not versioned. ~20,700 contracts a day after the
+# tradeability filter. Unlike the intraday store this one CAN be
+# refetched for past dates from NSE's archive.
+configs/fo/

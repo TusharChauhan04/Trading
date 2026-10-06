@@ -314,6 +314,23 @@ class NseSession:
         url = f"{ARCHIVES}/products/content/sec_bhavdata_full_{day.strftime('%d%m%Y')}.csv"
         return self._fetch_raw(url)
 
+    def fetch_fo_bhavcopy(self, day: date) -> bytes:
+        """The whole F&O segment for one day, as a zip. ONE request.
+
+        The derivatives counterpart to `fetch_bhavcopy`, and the thing that
+        makes options testable at all: it carries every contract's OHLC,
+        settlement price, open interest, underlying price and LOT SIZE, so an
+        option strategy can be backtested on real historical chains rather
+        than on a live snapshot. NSE's option-chain API serves only today.
+
+        URL shape is the NEW-style archive naming, the same convention BSE
+        switched to - not the legacy `fo<ddmmyy>bhav.csv.zip`. Verified live
+        for 2026-09-29: 1,266,256 bytes, 37,922 rows.
+        """
+        url = (f"{ARCHIVES}/content/fo/BhavCopy_NSE_FO_0_0_0_"
+               f"{day:%Y%m%d}_F_0000.csv.zip")
+        return self.fetch_with_retry(self._fetch_raw, url)
+
     def fetch_equity_master(self) -> bytes:
         """The listed-equity master: SYMBOL, company name, series, ISIN.
 

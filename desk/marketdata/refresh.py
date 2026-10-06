@@ -512,6 +512,62 @@ def refresh_intraday(symbols, out_dir: Path, *, interval: str = "5m",
     return 0
 
 
+def refresh_fo(session: NseSession, day: date, out_dir: Path, *,
+               tradeable_only: bool = True) -> int:
+    """One day of the F&O segment. ONE request for the whole derivatives market.
+
+    WHY THIS EXISTS. F&O was ruled out of this project at "about 12 lakh of
+    capital", and that figure was right for FUTURES MARGIN. Options are a
+    different instrument - a defined-risk spread costs the premium - and the
+    reopened question needs historical option chains to answer. NSE's
+    option-chain API serves only today; the F&O bhavcopy is the historical
+    route, and it is the same archive the equity bhavcopy comes from.
+
+    Stored parsed rather than raw, because the raw file is 46% contracts with
+    no volume whose close is a settlement NSE computed rather than a price
+    anyone paid. `tradeable_only` keeps the filter on; the dropped count is
+    printed so the loss is visible.
+    """
+    from desk.marketdata.fo import parse_fo_bhavcopy
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"{day.isoformat()}.parquet"
+    try:
+        raw = session.fetch_fo_bhavcopy(day)
+    except SourceError as exc:
+        print(f"{day}: {exc}")
+        return 1
+    try:
+        parsed = parse_fo_bhavcopy(raw, tradeable_only=tradeable_only)
+    except ValueError as exc:
+        print(f"{day}: could not parse - {exc}")
+        return 1
+
+    if parsed.contracts.empty:
+        print(f"{day}: nothing tradeable in the file; not writing a parquet - "
+              f"an empty file cannot be told from a holiday")
+        return 1
+    # The file's own TradDt must match what was asked for. NSE serves a
+    # wrong-date file for a closed day, and the equity backfill learned this
+    # the hard way: 27 "corrupt archive" failures were all holidays.
+    got = parsed.as_of.date()
+    if got != day:
+        print(f"{day}: the file NSE returned carries {got}, not {day} - "
+              f"a holiday or a wrong-date archive. Not writing.")
+        return 1
+
+    parsed.contracts.to_parquet(path, index=False)
+    opts = len(parsed.options)
+    print(f"{day}: {len(parsed.contracts):,} contracts "
+          f"({opts:,} options, {len(parsed.futures):,} futures) from "
+          f"{parsed.rows_in_file:,} rows "
+          f"[{parsed.traded_share:.1%} traded] -> {path.name}")
+    for n in parsed.notes:
+        print(f"  {n}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="desk.marketdata.refresh",
                                 description=__doc__.split("\n")[0])
@@ -589,6 +645,23 @@ def main(argv: list[str] | None = None) -> int:
                    dest="yahoo_min_interval",
                    help="seconds between requests. Below ~1.5 risks a 429")
 
+    fo = sub.add_parser(
+        "fo",
+        help="one day of the F&O segment - the historical option chains that "
+             "make the reopened options question answerable")
+    fo.add_argument("--date", type=date.fromisoformat, metavar="YYYY-MM-DD")
+    fo.add_argument("--from", dest="start", type=date.fromisoformat,
+                    metavar="YYYY-MM-DD",
+                    help="backfill a RANGE. Days already on disk are skipped, "
+                         "so an interrupted run resumes.")
+    fo.add_argument("--to", dest="end", type=date.fromisoformat,
+                    metavar="YYYY-MM-DD", help="defaults to today (IST)")
+    fo.add_argument("--out-dir", type=Path, default=CONFIGS / "fo")
+    fo.add_argument("--keep-untraded", action="store_true",
+                    help="keep contracts with zero volume. For measuring the "
+                         "segment's shape only - their close is a settlement, "
+                         "not a price anyone paid")
+
     args = p.parse_args(argv)
     interval = getattr(args, "min_interval", 1.0)
     session = NseSession(min_interval=interval)
@@ -629,6 +702,25 @@ def main(argv: list[str] | None = None) -> int:
             return refresh_intraday(
                 syms, args.out_dir, interval=args.interval, days=args.days,
                 min_interval=args.yahoo_min_interval)
+        if args.what == "fo":
+            keep = bool(getattr(args, "keep_untraded", False))
+            if args.start:
+                end = args.end or datetime.now(IST).date()
+                done = {p.stem for p in Path(args.out_dir).glob("*.parquet")}
+                bad = 0
+                d = args.start
+                while d <= end:
+                    if d.weekday() < 5 and d.isoformat() not in done:
+                        bad += refresh_fo(session, d, args.out_dir,
+                                          tradeable_only=not keep)
+                    d += timedelta(days=1)
+                print(f"{bad} day(s) could not be stored (holidays included)")
+                return 0
+            if not args.date:
+                print("fo needs either --date or --from/--to")
+                return 1
+            return refresh_fo(session, args.date, args.out_dir,
+                              tradeable_only=not keep)
         if args.what == "crosscheck":
             day = args.date
             if day is None:
