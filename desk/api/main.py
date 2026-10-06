@@ -16,7 +16,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -192,6 +193,30 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------- health ---
+
+@app.get("/", include_in_schema=False)
+def home() -> HTMLResponse:
+    """The one page a human opens. Everything else here is an API.
+
+    WHY THIS EXISTS. The desk had 30 endpoints and no way to look at any of
+    them without constructing a URL, which made it a system its operator could
+    not actually use - they said so. Capital is now an input that changes the
+    whole analysis, so a screen to type it into is not decoration.
+
+    ONE SELF-CONTAINED FILE, NO BUILD STEP. Upstream ships a React/Vite/
+    TypeScript SPA with 204 components; adopting it would mean a node
+    toolchain and hundreds of dependencies in a project whose pandas pin is
+    load-bearing for every measurement taken. This is plain HTML served by the
+    server that already runs.
+
+    IT SHOWS THE COST ARITHMETIC BEFORE THE PLAN, deliberately. The flat DP
+    charge is why a small account cannot trade delivery equity, and that has to
+    be visible while the operator is typing the amount rather than discovered
+    after a losing month.
+    """
+    return HTMLResponse((Path(__file__).parent / "ui.html").read_text(
+        encoding="utf-8"))
+
 
 @app.get("/health", tags=["system"])
 def health() -> dict:

@@ -1,0 +1,258 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The India Desk</title>
+<style>
+  :root{
+    --bg:#F5F4F0; --card:#FFFFFF; --line:#DEDCD4; --line2:#C6C3B8;
+    --ink:#1A1915; --ink2:#55524A; --ink3:#8A8679;
+    --accent:#1F4D3F; --accent-soft:#E2EDE8;
+    --buy:#1F6F4A; --buy-soft:#E2F0E8;
+    --warn:#8A5A10; --warn-soft:#F6EBD6;
+    --stop:#9C3524; --stop-soft:#F7E2DD;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#121311; --card:#1B1D1A; --line:#2B2E29; --line2:#3C4038;
+      --ink:#ECEBE5; --ink2:#B2B0A6; --ink3:#817E73;
+      --accent:#7FBBA2; --accent-soft:#17251F;
+      --buy:#73C49A; --buy-soft:#15241C;
+      --warn:#D7A64B; --warn-soft:#262013;
+      --stop:#E08B77; --stop-soft:#2A1713;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:860px;margin:0 auto;padding:28px 20px 80px}
+  h1{font-size:23px;margin:0;letter-spacing:-.02em}
+  .sub{color:var(--ink3);font-size:13.5px;margin:4px 0 22px}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace;
+    font-variant-numeric:tabular-nums}
+
+  .panel{background:var(--card);border:1px solid var(--line);
+    border-radius:8px;padding:16px 18px;margin-bottom:16px}
+  label{display:block;font-size:12px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--ink3);margin-bottom:6px}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+  .row > div{flex:1 1 150px}
+  input,select{width:100%;padding:9px 11px;font-size:16px;
+    font-family:ui-monospace,Menlo,Consolas,monospace;
+    background:var(--bg);color:var(--ink);
+    border:1px solid var(--line2);border-radius:6px}
+  button{padding:10px 20px;font-size:15px;font-weight:600;cursor:pointer;
+    background:var(--accent);color:var(--card);border:0;border-radius:6px}
+  button:disabled{opacity:.55;cursor:wait}
+  .hint{font-size:12.5px;color:var(--ink3);margin-top:7px}
+
+  .verdict{font-size:18px;font-weight:650;margin:0 0 4px}
+  .trade{border:1px solid var(--line);border-left:4px solid var(--buy);
+    border-radius:7px;padding:14px 16px;margin-bottom:12px;background:var(--card)}
+  .trade h3{margin:0 0 10px;font-size:17px;display:flex;gap:10px;
+    align-items:baseline;flex-wrap:wrap}
+  .tag{font-size:11px;letter-spacing:.05em;text-transform:uppercase;
+    padding:2px 8px;border-radius:3px;font-weight:600}
+  .tag-buy{background:var(--buy-soft);color:var(--buy)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));
+    gap:1px;background:var(--line);border:1px solid var(--line);
+    border-radius:6px;overflow:hidden;margin-bottom:11px}
+  .cell{background:var(--card);padding:9px 11px}
+  .cell .k{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--ink3)}
+  .cell .v{font-size:16px;font-weight:600;margin-top:2px}
+  .v.risk{color:var(--stop)} .v.gain{color:var(--buy)}
+  .why{font-size:13.5px;color:var(--ink2);margin:0 0 6px}
+  .why b{color:var(--ink)}
+
+  details{margin-top:10px;border-top:1px solid var(--line);padding-top:9px}
+  summary{cursor:pointer;font-size:12.5px;color:var(--ink3);
+    letter-spacing:.04em;text-transform:uppercase}
+  details ul{margin:9px 0 0;padding-left:19px;font-size:13px;color:var(--ink2)}
+  details li{margin-bottom:5px}
+
+  .box{border-radius:7px;padding:12px 15px;margin-bottom:14px;font-size:13.5px}
+  .box-warn{background:var(--warn-soft);color:var(--warn);
+    border:1px solid color-mix(in srgb,var(--warn) 30%,transparent)}
+  .box-stop{background:var(--stop-soft);color:var(--stop);
+    border:1px solid color-mix(in srgb,var(--stop) 30%,transparent)}
+  .box b{display:block;margin-bottom:4px}
+  .funnel{display:flex;gap:7px;flex-wrap:wrap;font-size:12px;color:var(--ink3);
+    margin-top:12px}
+  .funnel span{background:var(--bg);border:1px solid var(--line);
+    padding:3px 9px;border-radius:4px}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+  .chip{font-size:12px;background:var(--bg);border:1px solid var(--line);
+    border-radius:4px;padding:3px 9px;color:var(--ink2)}
+  footer{margin-top:26px;font-size:12.5px;color:var(--ink3);
+    border-top:1px solid var(--line);padding-top:14px}
+</style>
+
+<div class="wrap">
+  <h1>The India Desk</h1>
+  <p class="sub">Enter what you are willing to put in. Everything below is
+    computed from that number.</p>
+
+  <div class="panel">
+    <div class="row">
+      <div>
+        <label for="cap">Capital (₹)</label>
+        <input id="cap" type="number" value="100000" min="100" step="500">
+      </div>
+      <div>
+        <label for="risk">Risk per trade</label>
+        <select id="risk">
+          <option value="0.5" selected>0.5% — cautious</option>
+          <option value="1.0">1.0% — aggressive</option>
+        </select>
+      </div>
+      <div>
+        <label for="maxt">Max trades</label>
+        <input id="maxt" type="number" value="3" min="1" max="10">
+      </div>
+      <div style="flex:0 0 auto">
+        <button id="go">Get today's plan</button>
+      </div>
+    </div>
+    <p class="hint" id="costhint"></p>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const inr = n => n == null ? "—" :
+  "₹" + Number(n).toLocaleString("en-IN", {maximumFractionDigits: 2});
+
+// The flat DP charge is why small accounts cannot trade delivery equity: it is
+// about Rs 16 every time you sell, the same at any size. Shown live so the
+// number is visible BEFORE a plan is requested rather than discovered after.
+const DP = 15.93, PCT = 0.422, EDGE_R = 0.08;
+function costHint(){
+  const cap = +$("#cap").value || 0;
+  const risk = +$("#risk").value / 100;
+  const stop = 0.15;                       // the stop width this desk works at
+  const pos = cap * risk / stop;           // position implied by risk and stop
+  if (!(pos > 0)) { $("#costhint").textContent = ""; return; }
+  const rt = PCT + DP / pos * 100;
+  const costR = rt / (stop * 100);
+  const ok = costR < EDGE_R;
+  $("#costhint").innerHTML =
+    `At ${(risk*100).toFixed(1)}% risk and a 15% stop, one position is about ` +
+    `<b class="mono">${inr(Math.round(pos))}</b>. Round-trip cost ` +
+    `<b class="mono">${rt.toFixed(2)}%</b>, which is ` +
+    `<b class="mono">${costR.toFixed(3)}R</b> of the risk taken — ` +
+    (ok ? `below the <span class="mono">0.08R</span> edge this desk has measured.`
+        : `<b>above the <span class="mono">0.08R</span> edge measured, so fees ` +
+          `would eat it.</b> A position needs to be about ` +
+          `<span class="mono">${inr(2048)}</span> or more.`);
+}
+["#cap", "#risk"].forEach(s => $(s).addEventListener("input", costHint));
+costHint();
+
+function esc(s){ const d = document.createElement("div");
+  d.textContent = s == null ? "" : String(s); return d.innerHTML; }
+
+function tradeCard(t){
+  const risk = t.entry != null && t.stop != null
+    ? (t.entry - t.stop) * (t.qty || 0) : null;
+  const gain = t.entry != null && t.target != null
+    ? (t.target - t.entry) * (t.qty || 0) : null;
+  const rr = risk && gain ? (gain / risk) : null;
+  return `<div class="trade">
+    <h3>${esc(t.symbol)}
+      <span class="tag tag-buy">${esc(t.stance || "buy")}</span>
+      ${rr ? `<span class="tag" style="background:var(--accent-soft);
+        color:var(--accent)">1 : ${rr.toFixed(2)}</span>` : ""}</h3>
+    <div class="grid">
+      <div class="cell"><div class="k">Buy at</div>
+        <div class="v mono">${inr(t.entry)}</div></div>
+      <div class="cell"><div class="k">Quantity</div>
+        <div class="v mono">${t.qty ?? "—"}</div></div>
+      <div class="cell"><div class="k">Stop loss</div>
+        <div class="v mono">${inr(t.stop)}</div></div>
+      <div class="cell"><div class="k">Target</div>
+        <div class="v mono">${inr(t.target)}</div></div>
+      <div class="cell"><div class="k">You risk</div>
+        <div class="v mono risk">${inr(risk)}</div></div>
+      <div class="cell"><div class="k">You could make</div>
+        <div class="v mono gain">${inr(gain)}</div></div>
+    </div>
+    ${t.invalidation ? `<p class="why"><b>Why this stop:</b>
+      ${esc(t.invalidation)}</p>` : ""}
+    ${t.rationale ? `<details><summary>Full reasoning and what was not
+      checked</summary><ul>${
+        String(t.rationale).split(/\s*\|\s*|\s*;\s*/)
+          .filter(Boolean).map(x => `<li>${esc(x)}</li>`).join("")
+      }</ul></details>` : ""}
+  </div>`;
+}
+
+function render(p){
+  const trades = p.trades || [];
+  let h = "";
+
+  if (!trades.length){
+    h += `<div class="box box-warn"><b>NO TRADE today</b>${
+      esc(p.no_trade_reason || "Nothing cleared the risk gate.")}</div>`;
+  } else {
+    h += `<p class="verdict">${trades.length} trade${trades.length > 1 ? "s" : ""}
+      for ${esc(p.as_of)}</p>`;
+    const totalRisk = trades.reduce((a, t) =>
+      a + ((t.entry - t.stop) * (t.qty || 0) || 0), 0);
+    h += `<p class="sub">Total at risk if every stop is hit:
+      <b class="mono">${inr(totalRisk)}</b></p>`;
+    h += trades.map(tradeCard).join("");
+  }
+
+  if ((p.warnings || []).length){
+    h += `<div class="box box-stop"><b>What this system could NOT check</b>
+      <ul style="margin:6px 0 0;padding-left:18px">${
+        p.warnings.slice(0, 8).map(w => `<li>${esc(w)}</li>`).join("")
+      }</ul></div>`;
+  }
+
+  h += `<div class="panel"><label>How today narrowed down</label>
+    <div class="funnel">
+      <span>universe ${p.universe_scanned ?? "—"}</span>
+      <span>→ liquid ${p.survived_stage0 ?? "—"}</span>
+      <span>→ features ${p.survived_stage1 ?? "—"}</span>
+      <span>→ ranked ${p.survived_stage2 ?? "—"}</span>
+      <span>→ analysed ${p.analysed ?? "—"}</span>
+      <span>→ <b>${trades.length} trade${trades.length === 1 ? "" : "s"}</b></span>
+    </div>
+    <div class="chips"><span class="chip">market: ${esc(p.regime)}</span>
+      ${(p.watchlist || []).length
+        ? `<span class="chip">watchlist: ${p.watchlist.length}</span>` : ""}
+      ${(p.avoid || []).length
+        ? `<span class="chip">avoid: ${p.avoid.length}</span>` : ""}</div>
+    ${p.regime_note ? `<p class="hint">${esc(p.regime_note)}</p>` : ""}
+  </div>`;
+
+  h += `<footer>This is decision support, not advice. Nothing here has
+    cleared this project's own validation bar — see README.md. The stop is
+    where the trade is wrong, not a percentage.</footer>`;
+  $("#out").innerHTML = h;
+}
+
+$("#go").addEventListener("click", async () => {
+  const btn = $("#go");
+  btn.disabled = true; btn.textContent = "Scanning…";
+  $("#out").innerHTML = `<div class="panel sub">Running the funnel over the
+    whole market. This takes a few seconds.</div>`;
+  try{
+    const q = new URLSearchParams({
+      capital: $("#cap").value,
+      max_trades: $("#maxt").value,
+    });
+    const r = await fetch(`/plan/today?${q}`);
+    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`.slice(0, 300));
+    render(await r.json());
+  } catch (e){
+    $("#out").innerHTML = `<div class="box box-stop"><b>Could not get a plan</b>
+      ${esc(e.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = "Get today's plan";
+  }
+});
+</script>
