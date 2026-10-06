@@ -32,7 +32,27 @@ class RiskConfig(BaseModel):
     model_config = ConfigDict(allow_inf_nan=False)
 
     capital: float = Field(gt=0, le=1e12)
-    risk_pct: float = Field(default=1.0, gt=0, le=5.0)          # % of capital per trade
+    risk_pct: float = Field(default=0.5, gt=0, le=5.0)          # % of capital per trade
+    """How much of the account to lose when a trade hits its stop.
+
+    0.5 RATHER THAN 1.0, CHOSEN BY THE OPERATOR ON 2026-10-06 AGAINST MEASURED
+    NUMBERS rather than as a default. `drawdown_outlook` on the donchian
+    12%/20-session sequence over 200 trades:
+
+        0.5% risk   median DD  8.4%   p95 18.2%   P(DD>20%)  2.5%
+        1.0% risk   median DD 16.2%   p95 33.2%   P(DD>20%) 32.6%
+
+    At 1.0% a 20% drawdown happens on about one run in three and means nothing
+    went wrong; at 0.5% it happens on one in forty and means something did.
+    Halving the risk halves the expected gain - that is the trade, and it was
+    made deliberately.
+
+    NOTE FOR SMALL ACCOUNTS: below roughly Rs 20,000 this parameter stops
+    being meaningful. 0.5% of Rs 1,000 is Rs 5, and no equity position sized to
+    risk Rs 5 is purchasable. At that capital the position is one lot of one
+    instrument and the risk is whatever that lot carries - which is an argument
+    for options, where the premium IS the risk, rather than a reason to raise
+    this number."""
     max_position_pct: float = Field(default=15.0, gt=0, le=100) # % of capital in one name
     max_sector_pct: float = Field(default=30.0, gt=0, le=100)
     max_open_risk_pct: float = Field(default=4.0, gt=0, le=20)  # portfolio heat

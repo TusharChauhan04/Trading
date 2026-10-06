@@ -142,13 +142,19 @@ def test_the_cost_model_defaults_are_untouched() -> None:
 
 
 def test_the_risk_config_defaults_are_untouched() -> None:
-    """drawdown_outlook() was added to RiskConfig. It must not have changed what
-    the config DOES - and in particular risk_pct is still 1.0, which the
-    drawdown work argues is too high for the measured edge. That argument is
-    recorded; changing someone's sizing silently is not this code's decision."""
+    """The config's defaults are a contract, so a change to one must be
+    deliberate and attributable rather than a side effect.
+
+    risk_pct IS NOW 0.5, NOT 1.0, and that is the one default this project has
+    ever changed. The drawdown work had argued 1.0 was too high for the
+    measured edge - P(20% drawdown) of 32.6% against 2.5% at 0.5% - and this
+    test deliberately held the line at 1.0 on the grounds that changing
+    someone's sizing silently is not the code's decision. The OPERATOR chose
+    0.5 on 2026-10-06. The guard now records the new value, which is what it
+    is for: it did its job by failing when the default moved."""
     from desk.risk.engine import RiskConfig
 
     c = RiskConfig(capital=100_000)
-    assert c.risk_pct == 1.0
+    assert c.risk_pct == 0.5
     assert c.min_risk_reward == 1.5
     assert c.max_open_positions == 5

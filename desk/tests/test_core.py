@@ -329,7 +329,12 @@ def test_the_cluster_cap_does_not_shadow_the_sector_cap():
     the same key and the tighter cluster cap (25%) always bound first - making
     the 30% sector cap unreachable and reporting `correlated_cap` to someone
     who had configured no correlations at all."""
-    cfg = RiskConfig(capital=1_000_000, max_sector_pct=30.0,
+    # risk_pct PINNED here rather than inherited: this test's arithmetic
+    # depends on the position being 10% of capital, which follows from
+    # 1% risk over a 10% stop. The default moved to 0.5 on 2026-10-06, so
+    # inheriting it would halve every position and silently stop testing
+    # the gate interaction this exists for.
+    cfg = RiskConfig(capital=1_000_000, risk_pct=1.0, max_sector_pct=30.0,
                      max_correlated_pct=25.0, max_position_pct=100.0)
     # 25% already held; the new position adds 10% (10,000 risk / 10 stop =
     # 1,000 shares at 100), taking BANK to 35% and past the 30% sector cap.
