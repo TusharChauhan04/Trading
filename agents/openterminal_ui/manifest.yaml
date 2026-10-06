@@ -241,6 +241,72 @@ risks:
      so it carries the sklearn dependency. Revisit only if the desk ever holds
      a continuously rebalanced book, which is not the plan."
 
+  - "core/statlab SWEPT (7 unread files). TAKEN: autocorrelation.py ->
+     desk/research/persistence.py, which measured that volatility persists
+     5.45x more than direction on this universe and gave the half-life, 13
+     days, that constrains any option application. REFUSED: forecasting.py
+     (ARIMA/Holt-Winters on the PRICE LEVEL, which seven measured avenues
+     say is not forecastable here, and whose own quality metric is
+     rmse_IN_SAMPLE); decomposition.py (fillna bfill in its fallback, the
+     same future-leak as their indicators module, plus a 300-point output
+     cap, and daily equity has no seasonality to decompose). DEFERRED:
+     causality.py - Granger is sound machinery with severe multiple-testing
+     exposure across pairs x lags, and needs the Benjamini-Hochberg
+     treatment the pairs screen got before touching a universe."
+  - "risk_engine SWEPT (7 files). scenario_engine.py is NOT a fabricator:
+     unlike stress_test_service it computes real beta via compute.py rather
+     than hashing the ticker, and its np.random use is a declared Monte
+     Carlo over factor shocks. It is ORM-coupled and, more decisively,
+     SUPERSEDED BY DATA - the store now holds 1,719 sessions including March
+     2020, so replaying ACTUAL history beats a modelled shock.
+     factor_attribution.py is numpy-only and relevant, since this project
+     corrected a result to mostly-beta and a Fama-French decomposition would
+     say WHICH factor, but 2 of its 6 factors need balance-sheet items NSE
+     quarterly XBRL does not carry - the same gap that blocks the DCF."
+  - "shadow_account SWEPT (6 files). The IDEA matches this desk journal and
+     maturity ladder: learn behaviour rules from your own recorded trades.
+     The IMPLEMENTATION sets min_samples=4, so it declares a setup bad on
+     FOUR TRADES, and mines an emotion field this desk does not record. Four
+     samples is superstition where this project requires 30 per walk-forward
+     window. NOTE: this is NOT the missing PAPER rung - the desk already
+     settles outcomes from daily bars via research.refresh settle."
+  - "model_lab/metrics.py REFUSED. The same sentinel disease as
+     risk_measures: _max_drawdown returns 0.0 on an empty curve, which reads
+     as never having lost money; _align_for_beta_alpha returns zero beta and
+     zero alpha on failure, which reads as market-neutral with no alpha; and
+     nan_to_num with nan=0 throughout. desk/robustness and
+     desk/backtest/ruin.py already cover this and both refuse rather than
+     default."
+  - "screener SWEPT (11 files). parser.py and fields.py are a real screen
+     QUERY LANGUAGE and would serve the new UI. It validates with ast.parse
+     before handing the expression to DataFrame.query, which is the right
+     instinct, but it is a BLOCKLIST - denying Attribute, Subscript, Lambda,
+     Starred, NamedExpr - and still permits ast.Call with a bare-Name
+     function. Behind a UI text box only an ALLOWLIST is safe by
+     construction. DEFERRED rather than refused: worth taking, rewritten
+     with an allowlist, once fundamentals coverage improves beyond 186
+     symbols, since most fields it screens on are balance-sheet items we do
+     not hold."
+  - "agent/ and agent/tools/ SWEPT. EVERYTHING except playbook.py, which was
+     taken, and events.py is ORM-coupled or async-streaming: memory,
+     orchestrator, proposals, reflections, streaming, and all 11 tool
+     modules import backend services or SessionLocal or are async
+     generators. Application layer, not a library. The prompts were the
+     asset and are extracted."
+  - "alpha_zoo, portfolio_lab, core/framework, scanner_engine and
+     strategy_export SWEPT. alpha_zoo/operators.py is clean matrix-native
+     code REFUSED ON PRINCIPLE: the binding constraint is sample size, not
+     factor count, and every factor tested raises num_trials for every
+     measurement already taken against a DSR of 0.08. core/framework yielded
+     risk_management.py, which became the drawdown breaker; the rest solves
+     for continuous portfolio weights this desk does not have, as does
+     portfolio_lab. scanner_engine duplicates Stage 1 and 2.
+     strategy_export gave presets and pine; mql5 is the wrong platform."
+  - "THE SWEEP METHOD, worth repeating: of about 110 files in these subtrees
+     the great majority import backend services or SessionLocal or are async
+     generators. Grepping for that coupling FIRST sorted library code from
+     application code in one pass, and should have been step one of every
+     earlier audit of this repository."
 not_in_scope:
   - "The web application: FastAPI backend, React frontend, Docker, OMS,
      alerting, background services. 204 frontend components and 126 route
