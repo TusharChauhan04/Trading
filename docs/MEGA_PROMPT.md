@@ -135,6 +135,12 @@ Safety:
   claimed. Read `git log` for the house style.
 - **Update git, README.md and megamemory together** after each unit of work.
   The user has asked for this explicitly and repeatedly.
+- **Checkpoint megamemory before committing it.** `.megamemory/knowledge.db`
+  is tracked but its SQLite write-ahead log is gitignored, so concepts you
+  record live only in the WAL until checkpointed - a fresh clone then gets a
+  stale graph silently. Run `PRAGMA wal_checkpoint(TRUNCATE)` on the db, then
+  `git add` it. If `git status` shows the db unchanged after you recorded
+  something, it has not been checkpointed.
 
 ## THE MEASUREMENT DISCIPLINE
 

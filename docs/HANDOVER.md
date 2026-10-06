@@ -342,6 +342,21 @@ only copy.
 
 ---
 
+## 10a. Committing megamemory properly
+
+**megamemory writes go to a SQLite write-ahead log, and the WAL is gitignored.**
+`.megamemory/knowledge.db` is tracked; `knowledge.db-wal` is not. So concepts
+recorded during a session live only in the WAL until SQLite checkpoints, and a
+fresh clone gets a stale graph **silently**. This was found on 2026-10-06 with
+three days of concepts sitting unversioned in a 98KB WAL. Before committing:
+
+```bash
+.venv/Scripts/python.exe -c "import sqlite3; sqlite3.connect('.megamemory/knowledge.db').execute('PRAGMA wal_checkpoint(TRUNCATE)')"
+```
+
+Then `git add .megamemory/knowledge.db`. If `git status` shows the db unchanged
+after you recorded a concept, the WAL has not been checkpointed.
+
 ## 10b. Reproducing anything in this file
 
 **`research/` holds the script behind every number quoted here**, grouped as
