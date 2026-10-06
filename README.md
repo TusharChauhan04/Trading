@@ -362,6 +362,53 @@ retracted, and the first where the flattering number came from a window
 boundary rather than a thin sample. It is the reason the acceptance criterion
 is a count of windows and not a Sharpe.
 
+#### F&O reopened: options are testable, and cheap enough
+
+The earlier "about 12 lakh" ruling was right **for futures margin** - the
+cheapest lot needed Rs 59,616 against a Rs 15,000 position cap. Options are a
+different instrument, and the cost arithmetic above makes them more interesting
+rather than less: a defined-risk spread caps the loss at the premium **without
+needing a stop at all**, which is the one structure `cost_R = round_trip/stop`
+does not automatically kill.
+
+NSE's option-chain API serves only today, so options looked un-backtestable.
+The **F&O bhavcopy** is the historical route - free, daily, same archive as the
+equity bhavcopy, 37,922 rows for one day across 216 underlyings and 14
+expiries, carrying every contract's OHLC, settlement, open interest, underlying
+price and lot size.
+
+**The capital question is settled and the old ruling was wrong for options.**
+Across 255 underlying/expiry pairs offering a near-1:2 bull call spread:
+
+| capital at risk (premium x lot) | |
+| --- | --- |
+| cheapest | Rs 1,615 |
+| p10 | Rs 6,063 |
+| median | Rs 21,190 |
+| under the Rs 15,000 position cap | **34.9%** |
+
+**But the data lies in two ways, and both are now filtered.** 46% of contracts
+do not trade, and the file reports a close for every one of them - a settlement
+NSE computed, not a price anyone paid. And the prices are not
+arbitrage-coherent: the first probe found ADANIPORTS 1800/1820 calls at 6.70
+with the spot at 1821.96, which is 13.30 of free money, because two legs'
+closing prices come from different moments of the day.
+
+| price column | below intrinsic | non-monotonic in strike |
+| --- | --- | --- |
+| close | 1.86% | 3.24% |
+| settle | 0.85% | 6.27% |
+| last | 1.77% | 3.70% |
+
+No column is clean, so there is no correct one to pick - only filtering.
+`desk/marketdata/fo.py` provides `coherence_report` and `drop_incoherent`, and
+any spread study must apply one and say which.
+
+**The probe suggests a 1:2 spread needs a median 9.08% move within 28 days** -
+a far easier ask than the 24%-in-20-sessions the cash cell needs. That number
+is computed from the same incoherent prices, so it is a direction to
+investigate, **not a result**.
+
 #### The main goal, answered
 
 The desk exists to produce a 1:2 trade. On daily bars that failed for a
