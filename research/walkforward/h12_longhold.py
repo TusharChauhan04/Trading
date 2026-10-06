@@ -63,6 +63,12 @@ print(f"\n{'rule':<20}{'stop%':>6}{'hold':>6}{'cost_R':>8}{'win':>6}"
       f"{'pooled':>10}{'pos':>7}{'timing':>8}{'BOTH':>7}{'DSR':>8}{'trades':>8}",
       flush=True)
 rows = []
+DONE = {("donchian_breakout", 12.0, 20, 8), ("donchian_breakout", 12.0, 20, 11),
+        ("donchian_breakout", 12.0, 40, 8), ("donchian_breakout", 12.0, 40, 11),
+        ("donchian_breakout", 12.0, 60, 8), ("donchian_breakout", 12.0, 60, 11),
+        ("donchian_breakout", 15.0, 20, 8), ("donchian_breakout", 15.0, 20, 11),
+        ("donchian_breakout", 15.0, 40, 8)}
+
 for pid in ("donchian_breakout", "bollinger_breakout"):
     base = preset_rules()[pid].entries(panel).to_numpy(bool)
     sig = base & (excess >= BUF / 100.0)
@@ -70,6 +76,8 @@ for pid in ("donchian_breakout", "bollinger_breakout"):
         cost_r = (0.1222 + 0.300) / stop
         for hold in (20, 40, 60):
             for nwin in (8, 11):
+                if (pid, stop, hold, nwin) in DONE:
+                    continue
                 wf = walk_forward_preset(
                     panel, sig, label=f"{pid} {stop}/{hold} [{nwin}w]",
                     stop_pct=stop, hold_bars=hold, rr=2.0, buffer_pct=BUF,
