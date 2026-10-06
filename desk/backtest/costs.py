@@ -8,6 +8,12 @@ question being answered. Measured, with this module's own defaults:
     ------------------------------
     round trip          0.4222%   of turnover
 
+    ...PLUS A FLAT DP CHARGE OF ABOUT Rs 16 ON THE SELL SIDE, which is not a
+    percentage and therefore not in that total. At a Rs 100,000 position it
+    adds 0.016% and is ignorable; at Rs 500 it adds 3.186% and is the entire
+    story. See `dp_charge_rupees` - it is the only line here that does not
+    scale, and it decides whether a small account can trade at all.
+
     with a full-service broker at 0.3%/side:   1.1302%
 
 Note which line is larger. The statutory stack is arithmetic and nearly
@@ -92,10 +98,61 @@ class CostModel:
     broker at 0.3-0.5% per side would dominate every other line here, so
     this is the one worth checking against a real contract note."""
 
+    dp_charge_rupees: float = 15.93
+    """DP charge: a FLAT fee per scrip on the SELL side, independent of size.
+    Zerodha's 13.50 plus 18% GST; most discount brokers sit between 15 and 22.
+
+    THE ONLY NON-PERCENTAGE LINE IN THIS MODEL, AND IT CHANGES THE ANSWER FOR
+    SMALL ACCOUNTS. Every other charge scales with turnover, so the round trip
+    was a constant 0.422% at any size. This one does not, and it dominates
+    below a few thousand rupees:
+
+        position    pct costs   DP as %   round trip   cost_R at a 15% stop
+        Rs    500      0.422%     3.186%       3.608%                0.2405
+        Rs  2,000      0.422%     0.796%       1.219%                0.0812
+        Rs  5,000      0.422%     0.319%       0.741%                0.0494
+        Rs 10,000      0.422%     0.159%       0.582%                0.0388
+        Rs 100,000     0.422%     0.016%       0.438%                0.0292
+
+    The measured gross edge on this desk's best cell is about +0.08R, so the
+    BREAK-EVEN POSITION IS ABOUT Rs 2,048: below it this single flat fee eats
+    the entire edge before the market does anything. No strategy survives that,
+    and a backtest that omits it will report one that does.
+
+    Set to 0.0 only for an account where DP charges genuinely do not apply.
+    """
+
     slippage_bps: float = 15.0
     """Basis points per side, always against us. A GUESS, not a
     measurement - see the module docstring. `sized_for` replaces it with a
     size-aware figure where position value and turnover are known."""
+
+    def cost_r(self, *, stop_pct: float,
+               position_value: float | None = None) -> float:
+        """Round-trip cost expressed in units of the risk taken.
+
+        cost_R = round_trip% / stop%. The identity every result in this project
+        turns on: quantity cancels for the percentage lines, so only stop WIDTH
+        matters - EXCEPT for the DP charge, which is where position size
+        re-enters and why a small account cannot simply widen its stop out of
+        the problem.
+        """
+        if stop_pct <= 0:
+            raise ValueError("stop_pct must be positive to express cost in R")
+        return self.round_trip_pct(position_value) / stop_pct
+
+    def breakeven_position(self, *, stop_pct: float,
+                           gross_edge_r: float) -> float | None:
+        """The smallest position at which `gross_edge_r` survives costs.
+
+        None when the percentage charges alone already exceed the edge, which
+        means no position size rescues it and the stop must widen instead.
+        """
+        pct_only = self.round_trip_pct(None)
+        budget = gross_edge_r * stop_pct - pct_only
+        if budget <= 0 or not self.dp_charge_rupees:
+            return None
+        return self.dp_charge_rupees / budget * 100.0
 
     @classmethod
     def sized_for(cls, *, position_value: float, turnover_value: float,
@@ -176,17 +233,27 @@ class CostModel:
             exit_slippage=abs(exit_ - self.fill_price(exit_, side="sell")) * qty,
         )
 
-    def round_trip_pct(self) -> float:
+    def round_trip_pct(self, position_value: float | None = None) -> float:
         """Approximate round-trip drag as a percent of turnover.
 
         For sanity-checking a result rather than for pricing a trade: it
         assumes entry and exit values are equal, which they are not.
+
+        `position_value` ADDS THE FLAT DP CHARGE, which is the only line here
+        that does not scale with size. Omit it and you get the
+        percentage-only figure - correct in the limit of a large position and
+        badly wrong for a small one. Every walk-forward in this project up to
+        2026-10-06 omitted it, so every one of those results is optimistic by
+        the DP share at whatever position size was implied.
         """
         one_side_value = 100.0
         buy = self.charges(value=one_side_value, side="buy")
         sell = self.charges(value=one_side_value, side="sell")
         slip = 2 * one_side_value * self.slippage_bps / 10_000.0
-        return buy + sell + slip
+        pct = buy + sell + slip
+        if position_value and position_value > 0 and self.dp_charge_rupees:
+            pct += self.dp_charge_rupees / position_value * 100.0
+        return pct
 
 
 #: For isolating what costs are doing to a result. NOT a default: a
