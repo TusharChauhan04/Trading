@@ -362,6 +362,60 @@ retracted, and the first where the flattering number came from a window
 boundary rather than a thin sample. It is the reason the acceptance criterion
 is a count of windows and not a Sharpe.
 
+#### Options measured: a long-volatility bet, fairly priced
+
+48,943 near-1:2 vertical spreads over 249 sessions and 50 expiries, entered
+21-35 days out and held to expiry, both bull call and bear put.
+
+**The per-trade t of +8.72 was an artefact.** On any one expiry every symbol
+settles against the same market move, so those are not 48,943 observations -
+they are 12. Collapsed to one number per expiry:
+
+| | per-trade | per-expiry (correct) |
+| --- | --- | --- |
+| observations | 48,943 | **12** |
+| mean | +0.0469R | +0.0441R |
+| **t** | **+8.72** | **+1.15** |
+| positive | — | **5 of 12** |
+
+A 7.6x inflation, and the same error that inflated the pairs screen until
+Benjamini-Hochberg was applied. Identify the unit at which observations are
+independent *before* computing any t.
+
+**And the mechanism is volatility, not direction:**
+
+| regression | R² | alpha (flat-month return) | t |
+| --- | --- | --- | --- |
+| vs signed move | 0.216 | +0.0417R | +1.17 |
+| vs **absolute** move | **0.742** | **-0.0715R** | **-2.40** |
+
+74% of the result is explained by how far the market moved, in either
+direction, and the intercept - what the structure earns in a quiet month - is
+significantly **negative**.
+
+| | months | mean |
+| --- | --- | --- |
+| \|move\| >= 4% | 4 | **+0.2127R** (all four positive) |
+| \|move\| < 4% | 8 | -0.0401R |
+
+So buying both sides is **long volatility**: it bleeds by default and needs a
+monthly move over about 4% to pay, which happened a third of the time. The
+Indian option market prices that roughly correctly and, on this sample,
+slightly against the buyer. **No measurable edge.**
+
+The route matters as much as the answer. The first run was calls only and
+returned -0.0492R, which looked like a clean negative and was near-tautological:
+the index fell 6.5% over the period, so "buying calls in a falling market
+loses" is not a finding. Adding the bear put mirror flipped the sign. Neither
+number meant anything until the observations were counted correctly and
+direction was regressed out.
+
+**What stays open:** a *signal*. Entry here is unconditional. Something that
+predicted which months move more than 4% would turn the structure positive -
+and that is a **volatility** forecast, not a price forecast. This desk has
+never attempted one. It is a genuinely different question from everything
+measured so far.
+
 #### F&O reopened: options are testable, and cheap enough
 
 The earlier "about 12 lakh" ruling was right **for futures margin** - the
