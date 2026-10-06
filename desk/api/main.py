@@ -1470,6 +1470,111 @@ def plan_today(
 
 # ---------------------------------------------------------------- regime ---
 
+@app.get("/research/persistence", tags=["research"])
+def research_persistence(day: date | None = None,
+                         symbol: str | None = None,
+                         lookback: int = Query(default=LOOKBACK_CEILING,
+                                               ge=140,
+                                               le=LOOKBACK_CEILING)) -> dict:
+    """Is volatility forecastable here? The diagnostic, not a forecast.
+
+    EVERY SIGNAL THIS DESK HAS TESTED FORECASTS DIRECTION - breakouts, mean
+    reversion, cointegration, three regime gates - and all failed. The options
+    work then showed that a book of both call and put spreads is a LONG
+    VOLATILITY position: regressing per-expiry return on the ABSOLUTE market
+    move gives R-squared 0.742, and the flat-month intercept is negative. So
+    the structure does not need to know which way the market goes, only how
+    far - and that is a question nobody here has asked.
+
+    Measured on the equal-weighted cross-section over 1,718 sessions:
+
+        ACF lags 1-5, returns       0.031  0.037  0.050  0.023  0.072
+        ACF lags 1-5, |returns|     0.256  0.266  0.236  0.216  0.189
+        persistence ratio           5.45x
+        magnitude ACF half-life     13 days
+
+    READ THE RATIO, NOT THE P-VALUES. Ljung-Box calls BOTH series significant
+    at this sample size - 1.6e-05 for returns, 1.1e-154 for |returns| - and a
+    verdict built on significance would say "both persist" about an eightfold
+    difference in effect. A return ACF of 0.031 explains 0.1% of variance; 0.256
+    explains 6.7% and keeps doing so for weeks.
+
+    AND THE HALF-LIFE IS THE CONSTRAINT ON THE OPTIONS APPLICATION. Magnitude
+    autocorrelation decays by half in about 13 trading days, while the option
+    cycle this desk measured runs 21-35 days to expiry. Half the signal is gone
+    before the position resolves, so a volatility forecast at that horizon is
+    working against its own decay. That is a reason to test shorter-dated
+    structures, not a reason to skip the test.
+
+    `symbol` measures one name instead of the cross-section. Single names are
+    noisier and their persistence is usually weaker than the index's.
+    """
+    from desk.research.persistence import available, persistence_report
+
+    if not available():
+        return {"available": False,
+                "why": "statsmodels is not installed; `pip install statsmodels`"}
+    target = day or _latest_snapshot_day()
+    if target is None:
+        raise HTTPException(404, "no market snapshot on file")
+    store = BarStore(CONFIGS / "bhavcopy", calendar=_calendar_or_none())
+    try:
+        stage0 = run_stage0(store.load_day(target), min_price=20.0,
+                            min_turnover_lacs=100.0)
+        syms = stage0.survivors["symbol"].tolist()
+        hist = store.history(as_of=target, lookback=lookback, symbols=syms,
+                             columns=["close"])
+    except StoreError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+    closes = hist.wide_many(["close"])["close"]
+    if symbol:
+        sym = symbol.strip().upper()
+        if not sym.endswith(".NS"):
+            sym = f"{sym}.NS"
+        if sym not in closes.columns:
+            raise HTTPException(404, f"{sym} is not in the survivor set")
+        series, label = closes[sym].dropna(), sym
+    else:
+        series, label = closes.mean(axis=1), "equal-weighted cross-section"
+
+    r = persistence_report(series)
+    if r.volatility_is_forecastable is None:
+        return {"available": True, "measured": False, "series": label,
+                "why": r.why, "n_obs": r.n_obs}
+
+    return {
+        "available": True, "measured": True, "as_of": str(target),
+        "series": label, "n_obs": r.n_obs,
+        "conf_band": round(r.conf_band, 4),
+        "acf_returns_lag1_5": [round(x, 4) for x in r.acf_returns[1:6]],
+        "acf_abs_returns_lag1_5": [round(x, 4) for x in r.acf_abs_returns[1:6]],
+        "ljung_box_returns_p": {k: float(f"{v:.3g}")
+                                for k, v in r.ljung_returns_p.items()},
+        "ljung_box_abs_returns_p": {k: float(f"{v:.3g}")
+                                    for k, v in r.ljung_abs_p.items()},
+        "persistence_ratio": (None if r.persistence_ratio is None
+                              else round(r.persistence_ratio, 2)),
+        "magnitude_half_life_days": r.half_life_days,
+        "direction_is_forecastable": r.direction_is_forecastable,
+        "volatility_is_forecastable": r.volatility_is_forecastable,
+        "verdict": r.verdict,
+        "caveats": [
+            "READ persistence_ratio, NOT the p-values. At this sample size "
+            "Ljung-Box calls both series significant and the ratio is what "
+            "separates a 0.1%-of-variance effect from a 6.7% one",
+            "A DIAGNOSTIC, NOT A FORECAST. Persistence says there is something "
+            "to forecast; it does not say a forecast would be profitable, and "
+            "nothing here has been walk-forward tested",
+            "the magnitude ACF half-life is about 13 days against a 21-35 day "
+            "option cycle, so half the signal decays before the position "
+            "resolves - an argument for shorter-dated structures",
+            "single symbols are noisier than the cross-section and usually "
+            "show weaker persistence",
+        ],
+    }
+
+
 @app.get("/research/intraday-rr", tags=["research"])
 def research_intraday_rr(stop_pct: float = Query(default=0.5, gt=0.0, le=5.0),
                          rr: float = Query(default=2.0, gt=0.0, le=5.0),
